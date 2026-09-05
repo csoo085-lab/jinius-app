@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  background: #f3f5f8;
+  color: #1f2530;
+  font-family: 'Inter', sans-serif;
+}
+
+.font-display { font-family: 'Space Grotesk', sans-serif; }
+.font-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+input, select, textarea {
+  @apply bg-surface2 border border-border rounded-lg px-3 py-2 text-sm w-full outline-none;
+}
+input:focus, select:focus, textarea:focus {
+  @apply border-accent;
+}
+.btn {
+  @apply inline-flex items-center gap-1.5 bg-accent text-white px-3 py-2 rounded-lg text-sm font-semibold cursor-pointer;
+}
+.btn-ghost {
+  @apply inline-flex items-center gap-1.5 bg-transparent border border-borderBright text-ink px-3 py-2 rounded-lg text-sm font-semibold cursor-pointer;
+}
+.card {
+  @apply bg-surface border border-border rounded-xl p-4 shadow-sm;
+}
+.tag {
+  @apply inline-flex items-center gap-1 border border-dashed rounded px-2 py-0.5 text-xs font-mono;
+}
+
+@media print {
+  @page { margin: 15mm; }
+  body { background: #fff !important; color: #000 !important; }
+  .card { border: none !important; box-shadow: none !important; padding: 0 !important; }
+}
