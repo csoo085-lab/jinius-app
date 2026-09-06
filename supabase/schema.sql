@@ -96,6 +96,13 @@ create table if not exists public.buildings (
   unit_summary text default '',
   elevator_count int default 0,
   parking_info text default '',
+  owner_name text default '',
+  designer_name text default '',
+  supervisor_name text default '',
+  contractor_name text default '',
+  periodic_inspection_required boolean default false,
+  periodic_inspection_valid_until text default '',
+  floor_details jsonb default '[]',
   created_at timestamptz not null default now()
 );
 alter table public.buildings enable row level security;
@@ -279,3 +286,16 @@ create policy "attachments_update" on storage.objects for update
 create policy "attachments_delete" on storage.objects for delete
   using (bucket_id = 'attachments' and public.get_my_role() in ('관리자', '담당자'));
 
+
+-- ============================================================
+-- [마이그레이션] 건축물대장 상세 정보 추가 (2026-09)
+-- 이미 buildings 테이블이 생성되어 있는 경우, Supabase SQL Editor에서
+-- 아래 구문만 실행하면 기존 데이터를 유지한 채 컬럼이 추가됩니다.
+-- ============================================================
+alter table public.buildings add column if not exists owner_name text default '';
+alter table public.buildings add column if not exists designer_name text default '';
+alter table public.buildings add column if not exists supervisor_name text default '';
+alter table public.buildings add column if not exists contractor_name text default '';
+alter table public.buildings add column if not exists periodic_inspection_required boolean default false;
+alter table public.buildings add column if not exists periodic_inspection_valid_until text default '';
+alter table public.buildings add column if not exists floor_details jsonb default '[]';
