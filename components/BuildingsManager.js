@@ -12,6 +12,20 @@ const BANK_LIST = [
   "우체국", "산업은행", "수출입은행", "저축은행", "기타",
 ];
 
+const USAGE_LIST = [
+  "업무시설", "오피스텔", "아파트", "도시형생활주택", "공동주택",
+  "단독주택", "근린생활시설", "판매시설", "숙박시설", "주차장", "기타",
+];
+
+function generateFloorOptions(floorsAbove, floorsBelow) {
+  const above = Number(floorsAbove) || 0;
+  const below = Number(floorsBelow) || 0;
+  const opts = [];
+  for (let i = above; i >= 1; i--) opts.push(`${i}층`);
+  for (let i = 1; i <= below; i++) opts.push(`지하${i}층`);
+  return opts;
+}
+
 function emptyForm(b) {
   return {
     company_name: b?.company_name || "",
@@ -59,7 +73,12 @@ function buildingSummaryFields(b) {
   const bankLine = b.bank_name ? `${b.bank_name} ${b.bank_account || ""} ${b.account_holder ? "(" + b.account_holder + ")" : ""}`.trim() : "";
   const floorsLine = (b.floors_above || b.floors_below) ? `지상 ${b.floors_above || 0}층 / 지하 ${b.floors_below || 0}층` : "";
   const floorDetailsLine = Array.isArray(b.floor_details) && b.floor_details.length
-    ? b.floor_details.filter((r) => r.floor || r.usage || r.area).map((r) => `${r.floor || "-"}층 ${r.usage || ""}${r.area ? "(" + r.area + "㎡)" : ""}`).join(", ")
+    ? (() => {
+        const rows = b.floor_details.filter((r) => r.floor || r.usage || r.area);
+        const list = rows.map((r) => `${r.floor || "-"} ${r.usage || ""}${r.area ? "(" + Number(r.area).toLocaleString("ko-KR") + "㎡)" : ""}`).join(", ");
+        const sum = rows.reduce((acc, r) => acc + (Number(r.area) || 0), 0);
+        return sum ? `${list} · 합계 ${sum.toLocaleString("ko-KR")}㎡` : list;
+      })()
     : "";
   const inspectionLine = b.periodic_inspection_required
     ? `필요${b.periodic_inspection_valid_until ? " (유효기간: " + b.periodic_inspection_valid_until + ")" : ""}`
@@ -84,6 +103,7 @@ export default function BuildingsManager({ initialBuildings }) {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
 
   async function addBuilding() {
     if (!name.trim()) return;
@@ -104,7 +124,7 @@ export default function BuildingsManager({ initialBuildings }) {
 
   return (
     <div>
-      <h1 className="font-display font-bold text-xl mb-5">건물 설정</h1>
+      <h1 className="font-display font-bold text-xl mb-5">건물 정보</h1>
       <div className="card mb-4">
         <div className="flex gap-2">
           <input
@@ -121,23 +141,37 @@ export default function BuildingsManager({ initialBuildings }) {
         {initialBuildings.length === 0 && <div className="card text-sm text-inkDim">등록된 건물이 없습니다. 위에서 추가해주세요.</div>}
         {initialBuildings.map((b) => {
           const fields = buildingSummaryFields(b);
+          const isExpanded = expandedId === b.id;
           return (
             <div key={b.id} className="card">
-              <div className="flex items-center justify-between">
-                <div className="font-semibold text-sm">{b.name}</div>
-                <div className="flex gap-2">
+              <div
+                className="flex items-center justify-between cursor-pointer select-none"
+                onClick={() => setExpandedId(isExpanded ? null : b.id)}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-inkDim text-xs">{isExpanded ? "▾" : "▸"}</span>
+                  <div className="font-semibold text-sm">{b.name}</div>
+                </div>
+                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => setEditing(b)} className="text-accent text-xs font-medium">건물 정보 수정</button>
                   <button onClick={() => removeBuilding(b.id)} className="text-danger text-xs font-medium">삭제</button>
                 </div>
               </div>
-              {fields.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 mt-3">
-                  {fields.map(([label, value]) => (
-                    <div key={label} className="text-xs text-inkDim"><strong className="text-ink font-medium">{label}</strong>: {value}</div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-xs text-inkDim mt-3">등록된 상세 정보가 없습니다. &quot;건물 정보 수정&quot;을 눌러 입력하세요.</div>
+              {isExpanded && (
+                fields.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                    {fields.map(([label, value]) => (
+                      <label key={label} className="text-xs text-inkDim font-medium">
+                        {label}
+                        <div className="bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-ink mt-1">
+                          {value}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-inkDim mt-3">등록된 상세 정보가 없습니다. &quot;건물 정보 수정&quot;을 눌러 입력하세요.</div>
+                )
               )}
             </div>
           );
@@ -300,15 +334,70 @@ function BuildingEditModal({ building, onClose, onSaved }) {
 
           <label className="text-xs text-inkDim font-medium">층별 용도/면적</label>
           <div className="flex flex-col gap-2">
-            {form.floor_details.map((row, idx) => (
-              <div key={idx} className="grid grid-cols-[70px_1fr_90px_28px] gap-2 items-center">
-                <input value={row.floor} onChange={(e) => updateFloorRow(idx, "floor", e.target.value)} placeholder="예: 1층" />
-                <input value={row.usage} onChange={(e) => updateFloorRow(idx, "usage", e.target.value)} placeholder="예: 근린생활시설" />
-                <input type="number" value={row.area} onChange={(e) => updateFloorRow(idx, "area", e.target.value)} placeholder="㎡" />
-                <button type="button" className="btn-ghost px-2 py-2 text-xs" onClick={() => removeFloorRow(idx)}>✕</button>
-              </div>
-            ))}
+            {form.floor_details.map((row, idx) => {
+              const floorOptions = generateFloorOptions(form.floors_above, form.floors_below);
+              const floorTrim = (row.floor || "").trim();
+              const floorSelectVal = floorTrim === "" ? "" : (floorOptions.includes(floorTrim) ? floorTrim : "기타");
+              const floorIsOther = floorTrim !== "" && !floorOptions.includes(floorTrim);
+
+              const usageTrim = (row.usage || "").trim();
+              const usageSelectVal = usageTrim === "" ? "" : (USAGE_LIST.includes(usageTrim) ? usageTrim : "기타");
+              const usageIsOther = usageTrim !== "" && !USAGE_LIST.includes(usageTrim);
+
+              return (
+                <div key={idx} className="grid grid-cols-[100px_1fr_120px_28px] gap-2 items-center">
+                  <select
+                    value={floorSelectVal}
+                    onChange={(e) => updateFloorRow(idx, "floor", e.target.value === "기타" ? " " : e.target.value)}
+                  >
+                    <option value="">층 선택</option>
+                    {floorOptions.map((o) => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                    <option value="기타">기타</option>
+                  </select>
+                  <select
+                    value={usageSelectVal}
+                    onChange={(e) => updateFloorRow(idx, "usage", e.target.value === "기타" ? " " : e.target.value)}
+                  >
+                    <option value="">용도 선택</option>
+                    {USAGE_LIST.map((u) => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                  <div className="flex items-center gap-1">
+                    <input type="number" value={row.area} onChange={(e) => updateFloorRow(idx, "area", e.target.value)} placeholder="0" />
+                    <span className="text-xs text-inkDim shrink-0">㎡</span>
+                  </div>
+                  <button type="button" className="btn-ghost px-2 py-2 text-xs" onClick={() => removeFloorRow(idx)}>✕</button>
+
+                  {floorIsOther && (
+                    <input
+                      className="col-span-4 -mt-1"
+                      value={row.floor === " " ? "" : row.floor}
+                      onChange={(e) => updateFloorRow(idx, "floor", e.target.value)}
+                      placeholder="층 직접 입력 (예: 옥탑, PH1)"
+                    />
+                  )}
+                  {usageIsOther && (
+                    <input
+                      className="col-span-4 -mt-1"
+                      value={row.usage === " " ? "" : row.usage}
+                      onChange={(e) => updateFloorRow(idx, "usage", e.target.value)}
+                      placeholder="용도 직접 입력"
+                    />
+                  )}
+                </div>
+              );
+            })}
             <button type="button" className="btn-ghost self-start text-xs" onClick={addFloorRow}>+ 층 추가</button>
+            {form.floor_details.length > 0 && (
+              <div className="text-xs text-inkDim text-right pr-9">
+                면적 합계: <strong className="text-ink">
+                  {form.floor_details.reduce((acc, r) => acc + (Number(r.area) || 0), 0).toLocaleString("ko-KR")}㎡
+                </strong>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-inkDim font-medium">호수/가구수/세대수
