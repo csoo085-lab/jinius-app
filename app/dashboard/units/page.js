@@ -13,7 +13,7 @@ export default async function UnitsPage({ searchParams }) {
     return (
       <div>
         <h1 className="font-display font-bold text-xl mb-5">세대(호실) 설정</h1>
-        <div className="card text-sm text-inkDim">건물을 먼저 등록해주세요. (건물 설정 메뉴)</div>
+        <div className="card text-sm text-inkDim">건물을 먼저 등록해주세요. (건물 정보 메뉴)</div>
       </div>
     );
   }
