@@ -299,3 +299,127 @@ alter table public.buildings add column if not exists contractor_name text defau
 alter table public.buildings add column if not exists periodic_inspection_required boolean default false;
 alter table public.buildings add column if not exists periodic_inspection_valid_until text default '';
 alter table public.buildings add column if not exists floor_details jsonb default '[]';
+
+-- ============================================================
+-- [마이그레이션] 기관·업체 관리 (2026-09)
+-- 공통 기관·업체 목록(institutions) + 건물별 연결정보(building_institutions)
+-- + 고지서·점검보고서 첨부(institution_documents)
+-- ============================================================
+
+-- 10. 기관·업체 공통 목록 (한국전력, 상수도사업본부, 협력업체 등) -------
+create table if not exists public.institutions (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  org_type text default '공공기관',
+  category text default '',
+  phone text default '',
+  address text default '',
+  notes text default '',
+  created_at timestamptz not null default now()
+);
+alter table public.institutions enable row level security;
+create policy "institutions_read" on public.institutions for select using (auth.uid() is not null);
+create policy "institutions_write" on public.institutions for all
+  using (public.get_my_role() in ('관리자', '담당자'))
+  with check (public.get_my_role() in ('관리자', '담당자'));
+
+-- 11. 건물별 기관·업체 연결 (고객번호/계약정보) --------------------
+create table if not exists public.building_institutions (
+  id uuid primary key default gen_random_uuid(),
+  building_id uuid not null references public.buildings(id) on delete cascade,
+  institution_id uuid not null references public.institutions(id) on delete cascade,
+  customer_number text default '',
+  contract_info text default '',
+  notes text default '',
+  created_at timestamptz not null default now(),
+  unique (building_id, institution_id)
+);
+alter table public.building_institutions enable row level security;
+create policy "building_institutions_read" on public.building_institutions for select using (auth.uid() is not null);
+create policy "building_institutions_write" on public.building_institutions for all
+  using (public.get_my_role() in ('관리자', '담당자'))
+  with check (public.get_my_role() in ('관리자', '담당자'));
+
+-- 12. 기관·업체 첨부 서류 (고지서/점검보고서, Storage 'attachments' 버킷 재사용) ---
+create table if not exists public.institution_documents (
+  id uuid primary key default gen_random_uuid(),
+  building_institution_id uuid not null references public.building_institutions(id) on delete cascade,
+  doc_type text default '고지서',
+  issued_date text default '',
+  file_name text not null,
+  storage_path text not null,
+  size_bytes bigint default 0,
+  created_at timestamptz not null default now()
+);
+alter table public.institution_documents enable row level security;
+create policy "institution_documents_read" on public.institution_documents for select using (auth.uid() is not null);
+create policy "institution_documents_write" on public.institution_documents for all
+  using (public.get_my_role() in ('관리자', '담당자'))
+  with check (public.get_my_role() in ('관리자', '담당자'));
+
+-- ============================================================
+-- [마이그레이션] 시설 항목에 담당 업체(기관·업체) 연결 (2026-09)
+-- ============================================================
+alter table public.facility_items
+  add column if not exists vendor_id uuid references public.building_institutions(id) on delete set null;
+
+-- ============================================================
+-- [마이그레이션] 건물 총괄계량기 검침 (2026-09)
+-- 세대별 검침(meter_readings)과 별도로, 건물 전체 총괄계량기 검침을 기록
+-- ============================================================
+create table if not exists public.building_meter_readings (
+  id uuid primary key default gen_random_uuid(),
+  building_id uuid not null references public.buildings(id) on delete cascade,
+  month text not null,
+  utility text not null default '전기' check (utility in ('전기', '수도')),
+  prev_reading numeric not null default 0,
+  curr_reading numeric not null default 0,
+  note text default '',
+  created_at timestamptz not null default now(),
+  unique (building_id, month, utility)
+);
+alter table public.building_meter_readings enable row level security;
+create policy "building_meter_readings_read" on public.building_meter_readings for select using (auth.uid() is not null);
+create policy "building_meter_readings_write" on public.building_meter_readings for all
+  using (public.get_my_role() in ('관리자', '담당자'))
+  with check (public.get_my_role() in ('관리자', '담당자'));
+
+-- ============================================================
+-- [마이그레이션] 세대별 검침 보정값 (2026-09)
+-- 건물 총괄계량기 사용량과 세대 실측 합계의 차이를 세대별로 비례 배분해 기록
+-- ============================================================
+alter table public.meter_readings
+  add column if not exists adjustment numeric not null default 0;
+
+-- ============================================================
+-- [마이그레이션] 관리업 관련 법령 자료실 (2026-09)
+-- 공동주택관리법, 집합건물법, 승강기, 소방, 경비업, 주차장법 등 카테고리별로
+-- 개정 이력을 누적해서 기록. 원문 파일도 첨부 가능 (Storage 'attachments' 재사용)
+-- ============================================================
+create table if not exists public.regulations (
+  id uuid primary key default gen_random_uuid(),
+  category text not null default '기타',
+  title text not null,
+  effective_date text default '',
+  summary text default '',
+  source_url text default '',
+  notes text default '',
+  created_at timestamptz not null default now()
+);
+alter table public.regulations enable row level security;
+create policy "regulations_rw" on public.regulations for all
+  using (public.get_my_role() in ('관리자', '담당자'))
+  with check (public.get_my_role() in ('관리자', '담당자'));
+
+create table if not exists public.regulation_documents (
+  id uuid primary key default gen_random_uuid(),
+  regulation_id uuid not null references public.regulations(id) on delete cascade,
+  file_name text not null,
+  storage_path text not null,
+  size_bytes bigint default 0,
+  created_at timestamptz not null default now()
+);
+alter table public.regulation_documents enable row level security;
+create policy "regulation_documents_rw" on public.regulation_documents for all
+  using (public.get_my_role() in ('관리자', '담당자'))
+  with check (public.get_my_role() in ('관리자', '담당자'));
