@@ -12,6 +12,7 @@ export default function FeesManager({ buildings, building, buildingId, month, ro
   const [unitText, setUnitText] = useState("");
   const [values, setValues] = useState({});
   const [prevUnpaid, setPrevUnpaid] = useState(0);
+  const [previewRow, setPreviewRow] = useState(null);
 
   function goto(b, m) {
     router.push(`/dashboard/fees?building=${b}&month=${m}`);
@@ -55,7 +56,9 @@ export default function FeesManager({ buildings, building, buildingId, month, ro
     // unit_text 형식: "동 호" (예: "101동 101호") — 검침 dong/ho와 매칭
     const row = meterReadings.find((r) => `${r.dong} ${r.ho}`.trim() === unitTextValue && r.utility === utility);
     if (!row) return null;
-    return { prev: row.prev_reading, curr: row.curr_reading, usage: Math.max(0, row.curr_reading - row.prev_reading) };
+    const rawUsage = Math.max(0, row.curr_reading - row.prev_reading);
+    const adjustment = row.adjustment || 0;
+    return { prev: row.prev_reading, curr: row.curr_reading, usage: rawUsage + adjustment, adjustment };
   }
 
   function handlePrint() {
@@ -68,7 +71,7 @@ export default function FeesManager({ buildings, building, buildingId, month, ro
     <div>
       <div className="flex items-center justify-between mb-5 print:hidden">
         <h1 className="font-display font-bold text-xl">관리비 고지서</h1>
-        <button className="btn" onClick={handlePrint}>인쇄 / PDF 저장</button>
+        <button className="btn" onClick={handlePrint}>전체 인쇄 / PDF 저장</button>
       </div>
 
       <div className="card mb-4 print:hidden">
@@ -128,7 +131,7 @@ export default function FeesManager({ buildings, building, buildingId, month, ro
                   <th className="py-2">호실</th>
                   {feeItems.map((it) => <th key={it.id} className="py-2">{it.name}</th>)}
                   <th className="py-2">미납금</th><th className="py-2">연체료</th><th className="py-2">합계</th>
-                  {!readOnly && <th className="py-2"></th>}
+                  <th className="py-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -139,11 +142,12 @@ export default function FeesManager({ buildings, building, buildingId, month, ro
                     <td className="py-2 font-mono text-inkDim">{won(row.prev_unpaid)}</td>
                     <td className="py-2 font-mono text-inkDim">{won(row.late_fee)}</td>
                     <td className="py-2 font-mono font-semibold">{won(row.total)}</td>
-                    {!readOnly && (
-                      <td className="py-2 text-right">
+                    <td className="py-2 text-right">
+                      <button onClick={() => setPreviewRow(row)} className="text-accent text-xs font-medium mr-3">미리보기</button>
+                      {!readOnly && (
                         <button onClick={() => removeInvoice(row.id)} className="text-danger text-xs font-medium">삭제</button>
-                      </td>
-                    )}
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -152,59 +156,92 @@ export default function FeesManager({ buildings, building, buildingId, month, ro
         )}
       </div>
 
-      {/* 인쇄용 고지서 (화면에는 숨김, 인쇄 시에만 표시) */}
+      {/* 인쇄용 고지서 (화면에는 숨김, 인쇄 시에만 표시) — 미리보기 중이면 해당 1건만, 아니면 전체 */}
       <div className="hidden print:block">
-        {invoices.map((row) => {
-          const elec = findMeterUsage(row.unit_text, "전기");
-          const water = findMeterUsage(row.unit_text, "수도");
-          return (
-            <div key={row.id} className="break-after-page pt-6">
-              <div className="flex justify-between items-end border-b-2 border-black pb-3 mb-4">
-                <div>
-                  <div className="font-display font-bold">{building?.name} {building?.company_name ? `· ${building.company_name}` : ""}</div>
-                  <div className="text-sm">호실: {row.unit_text}</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-display font-bold text-xl">관리비 고지서</div>
-                  <div className="font-mono text-sm">{month}분</div>
-                </div>
-              </div>
-              {building?.due_date_text && <div className="text-xs mb-3">◎ 납부마감: {building.due_date_text}</div>}
-              <div className="grid grid-cols-2 gap-6 mb-4">
-                <table className="w-full text-sm border-collapse">
-                  <thead><tr><th className="text-left border-b py-1">비용항목</th><th className="text-right border-b py-1">금액</th></tr></thead>
-                  <tbody>
-                    {feeItems.map((it) => (
-                      <tr key={it.id}><td className="py-1">{it.name}</td><td className="text-right py-1">{won(row.values?.[it.name])}</td></tr>
-                    ))}
-                  </tbody>
-                  <tfoot><tr className="font-semibold border-t-2 border-black"><td className="py-1">항목 합계</td><td className="text-right py-1">{won(row.items_total)}</td></tr></tfoot>
-                </table>
-                <table className="w-full text-sm border-collapse">
-                  <thead><tr><th className="text-left border-b py-1">검침정보</th><th className="text-right border-b py-1">사용량</th></tr></thead>
-                  <tbody>
-                    {elec && <tr><td className="py-1">전기 (전월 {elec.prev} → 당월 {elec.curr})</td><td className="text-right py-1">{elec.usage} kWh</td></tr>}
-                    {water && <tr><td className="py-1">수도 (전월 {water.prev} → 당월 {water.curr})</td><td className="text-right py-1">{water.usage} ㎥</td></tr>}
-                    {!elec && !water && <tr><td colSpan={2} className="py-1 text-inkDim">검침 데이터 없음</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-              <table className="w-full text-sm max-w-xs ml-auto mb-4">
-                <tbody>
-                  <tr><td className="py-1">관 리 비</td><td className="text-right py-1">{won(row.items_total)}</td></tr>
-                  {row.prev_unpaid > 0 && <tr><td className="py-1">이전 미납금</td><td className="text-right py-1">{won(row.prev_unpaid)}</td></tr>}
-                  {row.late_fee > 0 && <tr><td className="py-1">연체료</td><td className="text-right py-1">{won(row.late_fee)}</td></tr>}
-                  <tr className="font-bold text-lg border-t-2 border-black"><td className="py-1">합 계</td><td className="text-right py-1">{won(row.total)}</td></tr>
-                </tbody>
-              </table>
-              <div className="text-xs text-right">
-                납부계좌: {building?.bank_name ? `${building.bank_name} ${building.bank_account || ""} (${building.account_holder || ""})` : "계좌정보 미등록"}
-                {building?.company_phone && ` · 문의 ${building.company_phone}`}
-              </div>
-            </div>
-          );
-        })}
+        {(previewRow ? [previewRow] : invoices).map((row) => (
+          <div key={row.id} className="break-after-page pt-6">
+            <InvoiceDocument
+              row={row}
+              building={building}
+              month={month}
+              feeItems={feeItems}
+              elec={findMeterUsage(row.unit_text, "전기")}
+              water={findMeterUsage(row.unit_text, "수도")}
+              won={won}
+            />
+          </div>
+        ))}
       </div>
+
+      {/* 화면 미리보기 모달 (인쇄 시에는 숨김) */}
+      {previewRow && (
+        <div className="print:hidden fixed inset-0 bg-black/50 flex items-start justify-center p-4 z-50 overflow-y-auto" onClick={() => setPreviewRow(null)}>
+          <div className="bg-white rounded-xl max-w-2xl w-full p-8 my-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-end gap-2 mb-4">
+              <button className="btn-ghost" onClick={() => setPreviewRow(null)}>닫기</button>
+              <button className="btn" onClick={handlePrint}>인쇄 / PDF 저장</button>
+            </div>
+            <InvoiceDocument
+              row={previewRow}
+              building={building}
+              month={month}
+              feeItems={feeItems}
+              elec={findMeterUsage(previewRow.unit_text, "전기")}
+              water={findMeterUsage(previewRow.unit_text, "수도")}
+              won={won}
+            />
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function InvoiceDocument({ row, building, month, feeItems, elec, water, won }) {
+  return (
+    <>
+      <div className="flex justify-between items-end border-b-2 border-black pb-3 mb-4">
+        <div>
+          <div className="font-display font-bold">{building?.name} {building?.company_name ? `· ${building.company_name}` : ""}</div>
+          <div className="text-sm">호실: {row.unit_text}</div>
+        </div>
+        <div className="text-right">
+          <div className="font-display font-bold text-xl">관리비 고지서</div>
+          <div className="font-mono text-sm">{month}분</div>
+        </div>
+      </div>
+      {building?.due_date_text && <div className="text-xs mb-3">◎ 납부마감: {building.due_date_text}</div>}
+      <div className="grid grid-cols-2 gap-6 mb-4">
+        <table className="w-full text-sm border-collapse">
+          <thead><tr><th className="text-left border-b py-1">비용항목</th><th className="text-right border-b py-1">금액</th></tr></thead>
+          <tbody>
+            {feeItems.map((it) => (
+              <tr key={it.id}><td className="py-1">{it.name}</td><td className="text-right py-1">{won(row.values?.[it.name])}</td></tr>
+            ))}
+          </tbody>
+          <tfoot><tr className="font-semibold border-t-2 border-black"><td className="py-1">항목 합계</td><td className="text-right py-1">{won(row.items_total)}</td></tr></tfoot>
+        </table>
+        <table className="w-full text-sm border-collapse">
+          <thead><tr><th className="text-left border-b py-1">검침정보</th><th className="text-right border-b py-1">사용량</th></tr></thead>
+          <tbody>
+            {elec && <tr><td className="py-1">전기 (전월 {elec.prev} → 당월 {elec.curr}{elec.adjustment ? `, 보정 ${elec.adjustment > 0 ? "+" : ""}${elec.adjustment}` : ""})</td><td className="text-right py-1">{elec.usage} kWh</td></tr>}
+            {water && <tr><td className="py-1">수도 (전월 {water.prev} → 당월 {water.curr}{water.adjustment ? `, 보정 ${water.adjustment > 0 ? "+" : ""}${water.adjustment}` : ""})</td><td className="text-right py-1">{water.usage} ㎥</td></tr>}
+            {!elec && !water && <tr><td colSpan={2} className="py-1 text-inkDim">검침 데이터 없음</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <table className="w-full text-sm max-w-xs ml-auto mb-4">
+        <tbody>
+          <tr><td className="py-1">관 리 비</td><td className="text-right py-1">{won(row.items_total)}</td></tr>
+          {row.prev_unpaid > 0 && <tr><td className="py-1">이전 미납금</td><td className="text-right py-1">{won(row.prev_unpaid)}</td></tr>}
+          {row.late_fee > 0 && <tr><td className="py-1">연체료</td><td className="text-right py-1">{won(row.late_fee)}</td></tr>}
+          <tr className="font-bold text-lg border-t-2 border-black"><td className="py-1">합 계</td><td className="text-right py-1">{won(row.total)}</td></tr>
+        </tbody>
+      </table>
+      <div className="text-xs text-right">
+        납부계좌: {building?.bank_name ? `${building.bank_name} ${building.bank_account || ""} (${building.account_holder || ""})` : "계좌정보 미등록"}
+        {building?.company_phone && ` · 문의 ${building.company_phone}`}
+      </div>
+    </>
   );
 }
