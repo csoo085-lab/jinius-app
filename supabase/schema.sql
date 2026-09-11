@@ -423,3 +423,90 @@ alter table public.regulation_documents enable row level security;
 create policy "regulation_documents_rw" on public.regulation_documents for all
   using (public.get_my_role() in ('관리자', '담당자'))
   with check (public.get_my_role() in ('관리자', '담당자'));
+-- ============================================================
+-- [마이그레이션] 관리업 관련 법령 기본 항목 시딩 (2026-09)
+-- 공동주택 관리업무에 적용되는 법령을 카테고리별 기본 참고 항목으로 등록
+-- (이미 같은 제목의 항목이 있으면 건너뜀 — 여러 번 실행해도 안전)
+-- ============================================================
+insert into public.regulations (category, title, summary)
+select '집합건물의 소유 및 관리에 관한 법률', '집합건물의 소유 및 관리에 관한 법률', '구분소유권, 공용부분 관리, 관리단·관리인 선임, 관리단집회, 관리규약, 관리비 등'
+where not exists (select 1 from public.regulations where title = '집합건물의 소유 및 관리에 관한 법률');
+insert into public.regulations (category, title, summary)
+select '공동주택관리법', '공동주택관리법', '주거용 집합건물(아파트, 의무관리대상 등) 관리 기준 준용 및 지자체 감사 근거'
+where not exists (select 1 from public.regulations where title = '공동주택관리법');
+insert into public.regulations (category, title, summary)
+select '민법', '민법', '관리위탁계약, 용역 도급계약, 불법행위 손해배상, 임대차 등 일반 사법 관계'
+where not exists (select 1 from public.regulations where title = '민법');
+insert into public.regulations (category, title, summary)
+select '소방시설 설치 및 관리에 관한 법률', '소방시설 설치 및 관리에 관한 법률', '소방시설 설치 기준, 소방시설 자체점검(작동·종합점검) 실시'
+where not exists (select 1 from public.regulations where title = '소방시설 설치 및 관리에 관한 법률');
+insert into public.regulations (category, title, summary)
+select '화재의 예방 및 안전관리에 관한 법률', '화재의 예방 및 안전관리에 관한 법률', '소방안전관리자 선임, 피난계획 수립, 의무 소방훈련 실시'
+where not exists (select 1 from public.regulations where title = '화재의 예방 및 안전관리에 관한 법률');
+insert into public.regulations (category, title, summary)
+select '승강기 안전관리법', '승강기 안전관리법', '승강기안전관리자 선임, 월 1회 자체점검, 정기·정밀안전검사, 책임보험 가입'
+where not exists (select 1 from public.regulations where title = '승강기 안전관리법');
+insert into public.regulations (category, title, summary)
+select '전기안전관리법', '전기안전관리법', '전기안전관리자 선임(상주 또는 대행), 자가용전기설비 정기검사'
+where not exists (select 1 from public.regulations where title = '전기안전관리법');
+insert into public.regulations (category, title, summary)
+select '기계설비법', '기계설비법', '기계설비유지관리자 선임, 기계설비 성능점검 및 유지관리 점검표 작성'
+where not exists (select 1 from public.regulations where title = '기계설비법');
+insert into public.regulations (category, title, summary)
+select '건축물관리법', '건축물관리법', '건축물 관리계획 수립, 다중이용건축물 등의 정기점검 및 긴급점검'
+where not exists (select 1 from public.regulations where title = '건축물관리법');
+insert into public.regulations (category, title, summary)
+select '건축법', '건축법', '건축물 유지·관리 의무, 위반건축물(불법 증축, 무단 용도변경) 단속, 피난·방화구획 유지'
+where not exists (select 1 from public.regulations where title = '건축법');
+insert into public.regulations (category, title, summary)
+select '시설물의 안전 및 유지관리에 관한 특별법', '시설물의 안전 및 유지관리에 관한 특별법', '1·2·3종 시설물 대상 정기안전점검, 정밀안전점검, 정밀안전진단 수행'
+where not exists (select 1 from public.regulations where title = '시설물의 안전 및 유지관리에 관한 특별법');
+insert into public.regulations (category, title, summary)
+select '도시가스사업법 / 고압가스 안전관리법', '도시가스사업법 / 고압가스 안전관리법', '특정가스사용시설 안전관리자 선임, 정기검사, 가스 누출 점검'
+where not exists (select 1 from public.regulations where title = '도시가스사업법 / 고압가스 안전관리법');
+insert into public.regulations (category, title, summary)
+select '수도법', '수도법', '저수조(물탱크) 청소(반기 1회), 먹는물 수질검사 실시 및 기록 보관'
+where not exists (select 1 from public.regulations where title = '수도법');
+insert into public.regulations (category, title, summary)
+select '감염병의 예방 및 관리에 관한 법률', '감염병의 예방 및 관리에 관한 법률', '일정 규모 이상 건물에 대한 의무 정기 소독(방역) 실시'
+where not exists (select 1 from public.regulations where title = '감염병의 예방 및 관리에 관한 법률');
+insert into public.regulations (category, title, summary)
+select '공중위생관리법', '공중위생관리법', '청소용역(위생관리용역업), 건물 위생환경 기준 준수'
+where not exists (select 1 from public.regulations where title = '공중위생관리법');
+insert into public.regulations (category, title, summary)
+select '하수도법', '하수도법', '정화조(개인하수처리시설) 연 1회 이상 내부청소, 방류수 수질기준 준수'
+where not exists (select 1 from public.regulations where title = '하수도법');
+insert into public.regulations (category, title, summary)
+select '실내공기질 관리법', '실내공기질 관리법', '연면적 기준 다중이용시설·지하역사·상가 등의 실내공기질 측정 및 보고'
+where not exists (select 1 from public.regulations where title = '실내공기질 관리법');
+insert into public.regulations (category, title, summary)
+select '폐기물관리법 / 자원재활용법', '폐기물관리법 / 자원재활용법', '생활폐기물 분리수거, 폐기물 감량, 음식물류 폐기물 적법 처리'
+where not exists (select 1 from public.regulations where title = '폐기물관리법 / 자원재활용법');
+insert into public.regulations (category, title, summary)
+select '개인정보 보호법', '개인정보 보호법', '공용구역 CCTV 설치 목적 제한, 안내판 부착, 영상 열람·파기 관리대장 작성'
+where not exists (select 1 from public.regulations where title = '개인정보 보호법');
+insert into public.regulations (category, title, summary)
+select '경비업법', '경비업법', '경비용역 위탁 시 경비지도사 선임 및 경비원 신임교육 준수 여부 관리'
+where not exists (select 1 from public.regulations where title = '경비업법');
+insert into public.regulations (category, title, summary)
+select '주차장법', '주차장법', '부설주차장 불법 용도변경 금지, 적치물 방치 금지, 기계식 주차설비 정기검사'
+where not exists (select 1 from public.regulations where title = '주차장법');
+insert into public.regulations (category, title, summary)
+select '중대재해 처벌 등에 관한 법률', '중대재해 처벌 등에 관한 법률', '관리주체(위탁관리회사/관리단)의 종사자 안전보건확보의무, 중대시민재해 예방'
+where not exists (select 1 from public.regulations where title = '중대재해 처벌 등에 관한 법률');
+insert into public.regulations (category, title, summary)
+select '산업안전보건법', '산업안전보건법', '시설관리·미화·경비 인력에 대한 안전보건교육, 위험성평가, 도급인의 안전조치'
+where not exists (select 1 from public.regulations where title = '산업안전보건법');
+insert into public.regulations (category, title, summary)
+select '근로기준법 / 최저임금법', '근로기준법 / 최저임금법', '직접 고용 인력(관리소 직원 등)의 근로시간, 휴게시설 설치 의무, 휴게시간 보장'
+where not exists (select 1 from public.regulations where title = '근로기준법 / 최저임금법');
+insert into public.regulations (category, title, summary)
+select '화재로 인한 재해보상과 보험가입에 관한 법률', '화재로 인한 재해보상과 보험가입에 관한 법률', '특수건물(16층 이상, 대형 판매시설 등) 화재배상책임보험 의무 가입'
+where not exists (select 1 from public.regulations where title = '화재로 인한 재해보상과 보험가입에 관한 법률');
+insert into public.regulations (category, title, summary)
+select '재난 및 안전관리 기본법', '재난 및 안전관리 기본법', '재난배상책임보험 가입 의무 시설(1층 음식점, 숙박시설 등) 확인 및 관리'
+where not exists (select 1 from public.regulations where title = '재난 및 안전관리 기본법');
+insert into public.regulations (category, title, summary)
+select '부가가치세법 / 법인세법 / 소득세법', '부가가치세법 / 법인세법 / 소득세법', '관리비 고지서 발행(면세/과세), 공용부분 잡수익(주차장, 중계기 등) 세금 신고'
+where not exists (select 1 from public.regulations where title = '부가가치세법 / 법인세법 / 소득세법');
+
