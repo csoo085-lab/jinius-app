@@ -97,13 +97,13 @@ function buildingSummaryFields(b) {
   return FIELD_LABELS.map(([key, label]) => [label, raw[key]]).filter(([, v]) => v);
 }
 
-export default function BuildingsManager({ initialBuildings }) {
+export default function BuildingsManager({ initialBuildings, initialExpandedId }) {
   const supabase = createClient();
   const router = useRouter();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedId, setExpandedId] = useState(initialExpandedId || null);
 
   async function addBuilding() {
     if (!name.trim()) return;
