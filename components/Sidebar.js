@@ -54,6 +54,7 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
 
   const buildingSubItemsForRole = BUILDING_SUB_ITEMS.filter((i) => i.roles.includes(role));
   const showBuildingTree = buildingSubItemsForRole.length > 0 && (buildings || []).length > 0;
+  const canManageBuildings = BUILDING_SUB_ITEMS.find((i) => i.hrefBase === "/dashboard/buildings")?.roles.includes(role);
 
   const loginTime = loginAt ? new Date(loginAt).getTime() : null;
 
@@ -92,6 +93,18 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
             </div>
           );
         })}
+
+        {(buildings || []).length === 0 && canManageBuildings && (
+          <Link
+            href="/dashboard/buildings"
+            className={
+              "px-3 py-2 mt-3 rounded-lg text-sm font-medium " +
+              (pathname === "/dashboard/buildings" ? "bg-surface2 text-ink" : "text-inkDim hover:bg-surface2")
+            }
+          >
+            건물 정보 (건물 등록)
+          </Link>
+        )}
 
         {showBuildingTree && (
           <div className="mt-3">
