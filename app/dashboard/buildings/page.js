@@ -1,8 +1,8 @@
 import { createClient } from "@/lib/supabaseServer";
 import BuildingsManager from "@/components/BuildingsManager";
 
-export default async function BuildingsPage() {
+export default async function BuildingsPage({ searchParams }) {
   const supabase = createClient();
   const { data } = await supabase.from("buildings").select("*").order("created_at", { ascending: true });
-  return <BuildingsManager initialBuildings={data || []} />;
+  return <BuildingsManager initialBuildings={data || []} initialExpandedId={searchParams?.building || null} />;
 }
