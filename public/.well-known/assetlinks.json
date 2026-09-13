@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.jinius.app",
+        "sha256_cert_fingerprints": ["19:F8:68:9A:F0:94:08:8C:B3:45:E1:8F:E8:90:C5:0A:58:A8:2F:3F:A3:A2:4A:68:FB:57:D6:88:E9:29:2A:0B"]
+      }
+    }]
