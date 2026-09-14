@@ -34,7 +34,7 @@ export default function PrivacyPolicy() {
       <h2>6. 개인정보 보호책임자</h2>
       <p>문의사항은 아래 연락처로 접수해 주시기 바랍니다.</p>
       <ul>
-        <li>담당자: 최준우</li>
+        <li>담당자: 최수영</li>
         <li>이메일: jinius_estate@naver.com</li>
       </ul>
 
