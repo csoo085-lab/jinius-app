@@ -5,6 +5,12 @@ function thisMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
+function prevMonthOf(month) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 2, 1); // m은 1~12, JS Date month는 0~11이므로 -2
+  return d.toISOString().slice(0, 7);
+}
+
 export default async function FeesPage({ searchParams }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -27,6 +33,9 @@ export default async function FeesPage({ searchParams }) {
   const { data: feeItems } = await supabase.from("fee_items").select("*").eq("building_id", buildingId).order("created_at");
   const { data: invoices } = await supabase.from("fee_invoices").select("*").eq("building_id", buildingId).eq("month", month);
   const { data: meterReadings } = await supabase.from("meter_readings").select("*").eq("building_id", buildingId).eq("month", month);
+  const { data: units } = await supabase.from("units").select("*").eq("building_id", buildingId).order("dong").order("ho");
+  const { data: itemAmounts } = await supabase.from("fee_item_amounts").select("*").eq("building_id", buildingId).eq("month", month);
+  const { data: prevItemAmounts } = await supabase.from("fee_item_amounts").select("*").eq("building_id", buildingId).eq("month", prevMonthOf(month));
 
   return (
     <FeesManager
@@ -38,6 +47,9 @@ export default async function FeesPage({ searchParams }) {
       feeItems={feeItems || []}
       invoices={invoices || []}
       meterReadings={meterReadings || []}
+      units={units || []}
+      itemAmounts={itemAmounts || []}
+      prevItemAmounts={prevItemAmounts || []}
     />
   );
 }
