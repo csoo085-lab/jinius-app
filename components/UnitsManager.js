@@ -16,11 +16,6 @@ export default function UnitsManager({ buildings, initialBuildingId, units }) {
   const [area, setArea] = useState("");
   const [loading, setLoading] = useState(false);
 
-  function changeBuilding(id) {
-    setBuildingId(id);
-    router.push("/dashboard/units?building=" + id);
-  }
-
   async function bulkGenerate() {
     if (!dong.trim()) { alert("동을 입력해주세요."); return; }
     const c = parseInt(count, 10);
@@ -56,13 +51,9 @@ export default function UnitsManager({ buildings, initialBuildingId, units }) {
 
   return (
     <div>
-      <h1 className="font-display font-bold text-xl mb-5">세대(호실) 설정</h1>
-      <div className="card mb-4">
-        <label className="text-xs text-inkDim font-medium block mb-1">대상 건물</label>
-        <select className="max-w-xs" value={buildingId} onChange={(e) => changeBuilding(e.target.value)}>
-          {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
-      </div>
+      <h1 className="font-display font-bold text-xl mb-5">
+        세대(호실) 설정 <span className="text-inkDim font-normal text-base">· {buildings.find((b) => b.id === buildingId)?.name}</span>
+      </h1>
 
       <div className="card mb-4">
         <div className="font-semibold text-sm mb-3">일괄 생성</div>
