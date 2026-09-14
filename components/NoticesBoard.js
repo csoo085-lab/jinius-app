@@ -12,7 +12,8 @@ export default function NoticesBoard({ notices, role, myName }) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [editingId, setEditingId] = useState(null);
-  const [expandedId, setExpandedId] = useState(notices[0]?.id || null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   function startNew() {
     setEditingId(null); setTitle(""); setContent(""); setShowForm(true);
@@ -48,55 +49,69 @@ export default function NoticesBoard({ notices, role, myName }) {
 
   function dateLabel(iso) {
     const d = new Date(iso);
-    return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+    return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
   return (
-    <div className="card mb-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="font-semibold text-sm">공지사항</div>
-        {canManage && !showForm && (
-          <button className="btn-ghost text-xs" onClick={startNew}>+ 공지 작성</button>
-        )}
-      </div>
+    <div className="rounded-xl border border-border overflow-hidden mb-4 bg-surface shadow-sm">
+      {/* 헤더 바 */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="w-full flex items-center justify-between px-4 py-3"
+        style={{ background: "linear-gradient(90deg, #262f6e, #004cd4)" }}
+      >
+        <span className="text-white font-display font-bold text-sm tracking-wide">공지사항</span>
+        <span className={`text-white transition-transform ${collapsed ? "-rotate-90" : ""}`}>▾</span>
+      </button>
 
-      {showForm && (
-        <div className="border border-borderBright rounded-lg p-3 mb-3">
-          <input placeholder="제목" value={title} onChange={(e) => setTitle(e.target.value)} className="mb-2" />
-          <textarea placeholder="내용" value={content} onChange={(e) => setContent(e.target.value)} rows={4} className="mb-2 w-full" />
-          <div className="flex gap-2">
-            <button className="btn" onClick={save}>{editingId ? "수정 저장" : "등록"}</button>
-            <button className="btn-ghost" onClick={() => { setShowForm(false); setEditingId(null); }}>취소</button>
-          </div>
-        </div>
-      )}
+      {!collapsed && (
+        <div className="p-4">
+          {canManage && (
+            <div className="flex justify-end mb-2">
+              {!showForm && <button className="btn-ghost text-xs" onClick={startNew}>+ 공지 작성</button>}
+            </div>
+          )}
 
-      {notices.length === 0 ? (
-        <p className="text-sm text-inkDim">등록된 공지사항이 없습니다.</p>
-      ) : (
-        <div className="divide-y divide-border">
-          {notices.map((n) => (
-            <div key={n.id} className="py-2">
-              <button
-                className="w-full flex items-center justify-between text-left"
-                onClick={() => setExpandedId(expandedId === n.id ? null : n.id)}
-              >
-                <span className="text-sm font-medium">{n.title}</span>
-                <span className="text-xs text-inkDim shrink-0 ml-2">{dateLabel(n.created_at)}</span>
-              </button>
-              {expandedId === n.id && (
-                <div className="mt-2 text-sm text-inkDim whitespace-pre-wrap">
-                  {n.content}
-                  {canManage && (
-                    <div className="flex gap-3 mt-2">
-                      <button onClick={() => startEdit(n)} className="text-accent text-xs font-medium">수정</button>
-                      <button onClick={() => remove(n.id)} className="text-danger text-xs font-medium">삭제</button>
+          {showForm && (
+            <div className="border border-borderBright rounded-lg p-3 mb-3">
+              <input placeholder="제목" value={title} onChange={(e) => setTitle(e.target.value)} className="mb-2" />
+              <textarea placeholder="내용" value={content} onChange={(e) => setContent(e.target.value)} rows={4} className="mb-2 w-full" />
+              <div className="flex gap-2">
+                <button className="btn" onClick={save}>{editingId ? "수정 저장" : "등록"}</button>
+                <button className="btn-ghost" onClick={() => { setShowForm(false); setEditingId(null); }}>취소</button>
+              </div>
+            </div>
+          )}
+
+          {notices.length === 0 ? (
+            <p className="text-sm text-inkDim">등록된 공지사항이 없습니다.</p>
+          ) : (
+            <ul>
+              {notices.map((n, idx) => (
+                <li key={n.id} className={idx > 0 ? "border-t border-border" : ""}>
+                  <button
+                    className="w-full flex items-center gap-2 py-2 text-left group"
+                    onClick={() => setExpandedId(expandedId === n.id ? null : n.id)}
+                  >
+                    <span className="w-1 h-1 rounded-full bg-accent shrink-0" />
+                    <span className="text-sm text-ink truncate flex-1 group-hover:text-accent">{n.title}</span>
+                    <span className="text-xs text-inkDim font-mono shrink-0">{dateLabel(n.created_at)}</span>
+                  </button>
+                  {expandedId === n.id && (
+                    <div className="pb-3 pl-3 text-sm text-inkDim whitespace-pre-wrap">
+                      {n.content}
+                      {canManage && (
+                        <div className="flex gap-3 mt-2">
+                          <button onClick={() => startEdit(n)} className="text-accent text-xs font-medium">수정</button>
+                          <button onClick={() => remove(n.id)} className="text-danger text-xs font-medium">삭제</button>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
-            </div>
-          ))}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
