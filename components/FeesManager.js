@@ -4,7 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
-const ALLOCATION_OPTIONS = ["면적비례", "세대균등", "전기사용량비례", "수도사용량비례"];
+const ALLOCATION_OPTIONS = ["정액제", "면적비례", "세대균등", "전기사용량비례", "수도사용량비례"];
+// 정액제: 세대당 금액을 그대로 입력 (입력값 = 1세대 부담액, 총액이 아님)
+// 나머지: 이번 달 총액을 입력하면 기준(면적/세대수/사용량)에 따라 자동 배분
+function isFixedPerUnit(item) {
+  return item.allocation === "정액제";
+}
 
 function lastDayOfMonth(month) {
   const [y, m] = month.split("-").map(Number);
@@ -108,6 +113,9 @@ export default function FeesManager({
 
   function shareOf(unit, item, amount, bases) {
     if (!amount) return 0;
+    if (item.allocation === "정액제") {
+      return Math.round(amount); // 입력값 자체가 1세대 부담액
+    }
     if (item.allocation === "면적비례") {
       if (!bases.totalArea) return 0;
       return Math.round(amount * ((Number(unit.area) || 0) / bases.totalArea));
@@ -130,6 +138,9 @@ export default function FeesManager({
   // 항목별 산출근거 문구 자동 생성 (표지 뒤 산출근거 페이지에 사용)
   function basisText(item, amount, bases) {
     const won = (n) => Math.round(n).toLocaleString();
+    if (item.allocation === "정액제") {
+      return `세대당 ${won(amount)}원 정액 × ${bases.unitCount}세대 = 총 ${won(amount * bases.unitCount)}원`;
+    }
     if (item.allocation === "면적비례") {
       if (!bases.totalArea) return "부과면적 정보 없음";
       const unitPrice = amount / bases.totalArea;
@@ -269,14 +280,14 @@ export default function FeesManager({
       {!readOnly && feeItems.length > 0 && (
         <div className="card mb-4 print:hidden">
           <div className="flex items-center justify-between mb-3">
-            <div className="font-semibold text-sm">{month} 항목별 총액 입력</div>
+            <div className="font-semibold text-sm">{month} 항목별 금액 입력</div>
             <button className="btn-ghost text-xs" onClick={loadPrevAmounts}>전월 값 불러오기</button>
           </div>
           <div className="grid grid-cols-2 gap-3 mb-3">
             {feeItems.map((it) => (
               <label key={it.id} className="text-xs text-inkDim font-medium">
                 {it.name} <span className="text-inkDim">({it.allocation})</span>
-                <input type="number" placeholder="이번 달 총액"
+                <input type="number" placeholder={isFixedPerUnit(it) ? "세대당 금액" : "이번 달 총액"}
                   value={amountInputs[it.id] ?? ""}
                   onChange={(e) => setAmountInputs({ ...amountInputs, [it.id]: e.target.value })} />
               </label>
@@ -546,10 +557,14 @@ function ReceiptDocument({ row, building, month, feeItems, elec, water, won }) {
 
 // ───────────────────── 관리비 부과총괄표 + 항목별 산출근거 ─────────────────────
 function SummaryPage({ building, month, feeItems, amountInputs, prevItemAmounts, bases, basisText, won }) {
-  const total = feeItems.reduce((s, it) => s + (Number(amountInputs[it.id]) || 0), 0);
+  // 정액제 항목은 입력값이 세대당 금액이므로, 총괄표에는 세대당 금액 × 세대수를 총액으로 표시
+  function displayAmount(it, raw) {
+    return isFixedPerUnit(it) ? raw * bases.unitCount : raw;
+  }
+  const total = feeItems.reduce((s, it) => s + displayAmount(it, Number(amountInputs[it.id]) || 0), 0);
   const prevTotal = feeItems.reduce((s, it) => {
     const found = prevItemAmounts.find((a) => a.fee_item_id === it.id);
-    return s + (found ? found.amount : 0);
+    return s + displayAmount(it, found ? found.amount : 0);
   }, 0);
   return (
     <div className="break-after-page text-sm">
@@ -564,9 +579,9 @@ function SummaryPage({ building, month, feeItems, amountInputs, prevItemAmounts,
         </thead>
         <tbody>
           {feeItems.map((it) => {
-            const amt = Number(amountInputs[it.id]) || 0;
+            const amt = displayAmount(it, Number(amountInputs[it.id]) || 0);
             const found = prevItemAmounts.find((a) => a.fee_item_id === it.id);
-            const prevAmt = found ? found.amount : 0;
+            const prevAmt = displayAmount(it, found ? found.amount : 0);
             return (
               <tr key={it.id}>
                 <td className="border px-2 py-1">{it.name}</td>
