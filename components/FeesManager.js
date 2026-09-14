@@ -267,9 +267,9 @@ export default function FeesManager({
             ))}
             {feeItems.length === 0 && <span className="text-xs text-inkDim">등록된 항목이 없습니다.</span>}
           </div>
-          <div className="flex gap-2">
-            <input placeholder="항목명 (예: 일반관리비)" value={newItem} onChange={(e) => setNewItem(e.target.value)} />
-            <select value={newAllocation} onChange={(e) => setNewAllocation(e.target.value)} className="shrink-0">
+          <div className="flex flex-wrap gap-2">
+            <input placeholder="항목명 (예: 일반관리비)" value={newItem} onChange={(e) => setNewItem(e.target.value)} className="flex-1 min-w-[160px]" />
+            <select value={newAllocation} onChange={(e) => setNewAllocation(e.target.value)} className="w-36 shrink-0">
               {ALLOCATION_OPTIONS.map((o) => <option key={o}>{o}</option>)}
             </select>
             <button className="btn shrink-0" onClick={addFeeItem}>추가</button>
