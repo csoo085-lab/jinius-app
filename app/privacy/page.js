@@ -35,7 +35,7 @@ export default function PrivacyPolicy() {
       <p>문의사항은 아래 연락처로 접수해 주시기 바랍니다.</p>
       <ul>
         <li>담당자: 최준우</li>
-        <li>이메일: (문의받으실 이메일 주소 입력)</li>
+        <li>이메일: jinius_estate@naver.com</li>
       </ul>
 
       <h2>7. 고지의 의무</h2>
