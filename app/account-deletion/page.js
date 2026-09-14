@@ -1,4 +1,5 @@
 // app/account-deletion/page.js
+export const dynamic = 'force-dynamic';
 
 export default function AccountDeletion() {
   return (
