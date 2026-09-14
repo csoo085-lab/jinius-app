@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabaseServer";
+import NoticesBoard from "@/components/NoticesBoard";
 
 async function count(supabase, table) {
   const { count } = await supabase.from(table).select("*", { count: "exact", head: true });
@@ -7,12 +8,18 @@ async function count(supabase, table) {
 
 export default async function DashboardPage() {
   const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: me } = await supabase.from("profiles").select("role, display_name").eq("id", user.id).single();
+  const role = me?.role || "고객";
+
   const [buildings, complaints, openComplaints, logs] = await Promise.all([
     count(supabase, "buildings"),
     count(supabase, "complaints"),
     supabase.from("complaints").select("*", { count: "exact", head: true }).neq("status", "완료").then((r) => r.count || 0),
     count(supabase, "inspection_logs"),
   ]);
+
+  const { data: notices } = await supabase.from("notices").select("*").order("created_at", { ascending: false }).limit(10);
 
   const stats = [
     { label: "등록된 건물", value: buildings },
@@ -24,6 +31,9 @@ export default async function DashboardPage() {
   return (
     <div>
       <h1 className="font-display font-bold text-xl mb-5">대시보드</h1>
+
+      <NoticesBoard notices={notices || []} role={role} myName={me?.display_name} />
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {stats.map((s) => (
           <div key={s.label} className="card">
