@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabaseServer";
+import { getCurrentUser } from "@/lib/session";
 import MetersManager from "@/components/MetersManager";
 
 function thisMonth() {
@@ -20,9 +21,8 @@ function prevMonths(monthStr, n) {
 
 export default async function MetersPage({ searchParams }) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: me } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (!["관리자", "담당자"].includes(me?.role)) redirect("/dashboard");
+  const { role } = await getCurrentUser();
+  if (!["관리자", "담당자"].includes(role)) redirect("/dashboard");
 
   const { data: buildings } = await supabase.from("buildings").select("*").order("created_at", { ascending: true });
   if (!buildings || buildings.length === 0) {
@@ -36,33 +36,18 @@ export default async function MetersPage({ searchParams }) {
   const buildingId = searchParams?.building || buildings[0].id;
   const month = searchParams?.month || thisMonth();
   const utility = searchParams?.utility || "전기";
-
-  const { data: readings } = await supabase
-    .from("meter_readings")
-    .select("*")
-    .eq("building_id", buildingId)
-    .eq("month", month)
-    .eq("utility", utility)
-    .order("dong")
-    .order("ho");
-
-  const { data: buildingReadingRows } = await supabase
-    .from("building_meter_readings")
-    .select("*")
-    .eq("building_id", buildingId)
-    .eq("month", month)
-    .eq("utility", utility)
-    .limit(1);
-  const buildingReading = (buildingReadingRows || [])[0] || null;
-
-  // 최근 3개월(직전) 세대별 평균 사용량 계산용 데이터
   const prevMonthList = prevMonths(month, 3);
-  const { data: histRows } = await supabase
-    .from("meter_readings")
-    .select("dong, ho, prev_reading, curr_reading, month")
-    .eq("building_id", buildingId)
-    .eq("utility", utility)
-    .in("month", prevMonthList);
+
+  const [{ data: readings }, { data: buildingReadingRows }, { data: histRows }] = await Promise.all([
+    supabase.from("meter_readings").select("*")
+      .eq("building_id", buildingId).eq("month", month).eq("utility", utility)
+      .order("dong").order("ho"),
+    supabase.from("building_meter_readings").select("*")
+      .eq("building_id", buildingId).eq("month", month).eq("utility", utility).limit(1),
+    supabase.from("meter_readings").select("dong, ho, prev_reading, curr_reading, month")
+      .eq("building_id", buildingId).eq("utility", utility).in("month", prevMonthList),
+  ]);
+  const buildingReading = (buildingReadingRows || [])[0] || null;
 
   const avgByUnit = {};
   (histRows || []).forEach((r) => {
