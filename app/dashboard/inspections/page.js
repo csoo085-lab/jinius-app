@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabaseServer";
+import { getCurrentUser } from "@/lib/session";
 import InspectionsManager from "@/components/InspectionsManager";
 
 export default async function InspectionsPage({ searchParams }) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: me } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (!["관리자", "담당자"].includes(me?.role)) redirect("/dashboard");
+  const { role } = await getCurrentUser();
+  if (!["관리자", "담당자"].includes(role)) redirect("/dashboard");
 
   const { data: buildings } = await supabase.from("buildings").select("*").order("created_at", { ascending: true });
   if (!buildings || buildings.length === 0) {
