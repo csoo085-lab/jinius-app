@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
-export default function NoticesBoard({ notices, role, myName }) {
+export default function NoticesBoard({ notices, role, myName, buildingId }) {
   const supabase = createClient();
   const router = useRouter();
   const canManage = role === "관리자" || role === "담당자";
@@ -32,7 +32,7 @@ export default function NoticesBoard({ notices, role, myName }) {
       if (error) { alert("수정 실패: " + error.message); return; }
     } else {
       const { error } = await supabase.from("notices").insert({
-        title: title.trim(), content: content.trim(), author: myName || "",
+        title: title.trim(), content: content.trim(), author: myName || "", building_id: buildingId,
       });
       if (error) { alert("등록 실패: " + error.message); return; }
     }
