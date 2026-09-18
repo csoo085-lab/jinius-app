@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabaseServer";
+import { getCurrentUser } from "@/lib/session";
 import FacilitiesManager from "@/components/FacilitiesManager";
 
 const CATEGORIES = ["전기", "소방", "엘리베이터", "기계식주차", "인터넷", "펌프실", "비상발전기실", "급수·배수", "기계·냉난방", "청소", "기타"];
 
 export default async function FacilitiesPage({ searchParams }) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: me } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (!["관리자", "담당자"].includes(me?.role)) redirect("/dashboard");
+  const { role } = await getCurrentUser();
+  if (!["관리자", "담당자"].includes(role)) redirect("/dashboard");
 
   const { data: buildings } = await supabase.from("buildings").select("*").order("created_at", { ascending: true });
   if (!buildings || buildings.length === 0) {
@@ -23,12 +23,12 @@ export default async function FacilitiesPage({ searchParams }) {
 
   const { data: items } = await supabase.from("facility_items").select("*").eq("building_id", buildingId);
   const itemIds = (items || []).map((i) => i.id);
-  const { data: logs } = itemIds.length
-    ? await supabase.from("inspection_logs").select("*").in("item_id", itemIds).order("log_date", { ascending: false })
-    : { data: [] };
-  const { data: documents } = itemIds.length
-    ? await supabase.from("documents").select("*").in("item_id", itemIds)
-    : { data: [] };
+  const [{ data: logs }, { data: documents }] = itemIds.length
+    ? await Promise.all([
+        supabase.from("inspection_logs").select("*").in("item_id", itemIds).order("log_date", { ascending: false }),
+        supabase.from("documents").select("*").in("item_id", itemIds),
+      ])
+    : [{ data: [] }, { data: [] }];
 
   const groups = CATEGORIES.map((cat) => ({
     category: cat,
