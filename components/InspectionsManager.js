@@ -31,10 +31,6 @@ export default function InspectionsManager({ buildings, buildingId, items, logsB
   const [photoFiles, setPhotoFiles] = useState([]);
   const [saving, setSaving] = useState(false);
 
-  function changeBuilding(id) {
-    router.push("/dashboard/inspections?building=" + id);
-  }
-
   async function removeItem(id) {
     if (!confirm("이 항목을 삭제할까요? 관련 점검 기록도 함께 삭제됩니다.")) return;
     const { error } = await supabase.from("facility_items").delete().eq("id", id);
@@ -65,13 +61,9 @@ export default function InspectionsManager({ buildings, buildingId, items, logsB
 
   return (
     <div>
-      <h1 className="font-display font-bold text-xl mb-5">시설점검 관리</h1>
-      <div className="card mb-4">
-        <label className="text-xs text-inkDim font-medium block mb-1">대상 건물</label>
-        <select className="max-w-xs" value={buildingId} onChange={(e) => changeBuilding(e.target.value)}>
-          {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
-      </div>
+      <h1 className="font-display font-bold text-xl mb-5">
+        시설점검 관리 <span className="text-inkDim font-normal text-base">· {buildings.find((b) => b.id === buildingId)?.name}</span>
+      </h1>
 
       <div className="flex justify-end mb-3">
         <button className="btn" onClick={() => setShowItemForm(true)}>+ 점검 항목 추가</button>
