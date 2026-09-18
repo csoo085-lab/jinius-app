@@ -10,10 +10,6 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
   const [docsItem, setDocsItem] = useState(null);
   const printRef = useRef(null);
 
-  function changeBuilding(id) {
-    router.push("/dashboard/facilities?building=" + id);
-  }
-
   function handlePrint() {
     window.print();
   }
@@ -23,15 +19,10 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
   return (
     <div>
       <div className="flex items-center justify-between mb-5 print:hidden">
-        <h1 className="font-display font-bold text-xl">시설현황</h1>
+        <h1 className="font-display font-bold text-xl">
+          시설현황 <span className="text-inkDim font-normal text-base">· {buildingName}</span>
+        </h1>
         <button className="btn" onClick={handlePrint}>인쇄 / PDF 저장</button>
-      </div>
-
-      <div className="card mb-4 print:hidden">
-        <label className="text-xs text-inkDim font-medium block mb-1">대상 건물</label>
-        <select className="max-w-xs" value={buildingId} onChange={(e) => changeBuilding(e.target.value)}>
-          {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
       </div>
 
       <div ref={printRef}>
