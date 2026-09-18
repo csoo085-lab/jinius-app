@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabaseServer";
+import { getCurrentUser } from "@/lib/session";
 import FeesManager from "@/components/FeesManager";
 
 function thisMonth() {
@@ -13,9 +14,7 @@ function prevMonthOf(month) {
 
 export default async function FeesPage({ searchParams }) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: me } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  const role = me?.role || "고객";
+  const { role } = await getCurrentUser();
 
   const { data: buildings } = await supabase.from("buildings").select("*").order("created_at", { ascending: true });
   if (!buildings || buildings.length === 0) {
@@ -30,12 +29,21 @@ export default async function FeesPage({ searchParams }) {
   const month = searchParams?.month || thisMonth();
   const building = buildings.find((b) => b.id === buildingId);
 
-  const { data: feeItems } = await supabase.from("fee_items").select("*").eq("building_id", buildingId).order("created_at");
-  const { data: invoices } = await supabase.from("fee_invoices").select("*").eq("building_id", buildingId).eq("month", month);
-  const { data: meterReadings } = await supabase.from("meter_readings").select("*").eq("building_id", buildingId).eq("month", month);
-  const { data: units } = await supabase.from("units").select("*").eq("building_id", buildingId).order("dong").order("ho");
-  const { data: itemAmounts } = await supabase.from("fee_item_amounts").select("*").eq("building_id", buildingId).eq("month", month);
-  const { data: prevItemAmounts } = await supabase.from("fee_item_amounts").select("*").eq("building_id", buildingId).eq("month", prevMonthOf(month));
+  const [
+    { data: feeItems },
+    { data: invoices },
+    { data: meterReadings },
+    { data: units },
+    { data: itemAmounts },
+    { data: prevItemAmounts },
+  ] = await Promise.all([
+    supabase.from("fee_items").select("*").eq("building_id", buildingId).order("created_at"),
+    supabase.from("fee_invoices").select("*").eq("building_id", buildingId).eq("month", month),
+    supabase.from("meter_readings").select("*").eq("building_id", buildingId).eq("month", month),
+    supabase.from("units").select("*").eq("building_id", buildingId).order("dong").order("ho"),
+    supabase.from("fee_item_amounts").select("*").eq("building_id", buildingId).eq("month", month),
+    supabase.from("fee_item_amounts").select("*").eq("building_id", buildingId).eq("month", prevMonthOf(month)),
+  ]);
 
   return (
     <FeesManager
