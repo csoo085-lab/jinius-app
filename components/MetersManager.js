@@ -10,8 +10,8 @@ export default function MetersManager({ buildings, buildingId, month, utility, r
   const [dong, setDong] = useState("");
   const [ho, setHo] = useState("");
 
-  function goto(b, m, u) {
-    router.push(`/dashboard/meters?building=${b}&month=${m}&utility=${u}`);
+  function goto(m, u) {
+    router.push(`/dashboard/meters?building=${buildingId}&month=${m}&utility=${u}`);
   }
 
   async function addRow() {
@@ -46,19 +46,18 @@ export default function MetersManager({ buildings, buildingId, month, utility, r
   return (
     <div>
       <div className="flex items-center justify-between mb-5 print:hidden">
-        <h1 className="font-display font-bold text-xl">검침 관리</h1>
+        <h1 className="font-display font-bold text-xl">
+          검침 관리 <span className="text-inkDim font-normal text-base">· {buildingName}</span>
+        </h1>
         <button className="btn" onClick={handlePrint}>인쇄 / PDF 저장</button>
       </div>
 
       <div className="card mb-4 print:hidden">
-        <div className="grid grid-cols-3 gap-3">
-          <select value={buildingId} onChange={(e) => goto(e.target.value, month, utility)}>
-            {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-          <input type="month" value={month} onChange={(e) => goto(buildingId, e.target.value, utility)} />
+        <div className="grid grid-cols-2 gap-3">
+          <input type="month" value={month} onChange={(e) => goto(e.target.value, utility)} />
           <div className="flex gap-1">
             {["전기", "수도"].map((u) => (
-              <button key={u} type="button" onClick={() => goto(buildingId, month, u)}
+              <button key={u} type="button" onClick={() => goto(month, u)}
                 className={"flex-1 py-2 rounded-lg text-sm border " + (utility === u ? "bg-accent text-white border-accent" : "bg-surface2 border-border text-inkDim")}>
                 {u}
               </button>
