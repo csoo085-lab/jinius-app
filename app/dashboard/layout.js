@@ -1,21 +1,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabaseServer";
+import { getCurrentUser } from "@/lib/session";
 import Sidebar from "@/components/Sidebar";
 
 export default async function DashboardLayout({ children }) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user, role, displayName } = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("display_name, role")
-    .eq("id", user.id)
-    .single();
-
-  const role = profile?.role || "고객";
-  const displayName = profile?.display_name || user.email;
-
+  const supabase = createClient();
   const { data: buildings } = await supabase
     .from("buildings")
     .select("id, name")
