@@ -59,7 +59,7 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
 
   return (
     <aside className="w-56 shrink-0 bg-surface border-r border-border flex flex-col p-4 print:hidden overflow-y-auto">
-      <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-full h-auto mb-4" />
+      <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-32 h-auto mb-4" />
       <div className="text-xs text-inkDim mb-4">
         {displayName} · <span className="text-accent font-semibold">{role}</span>
       </div>
