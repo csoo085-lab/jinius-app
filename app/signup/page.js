@@ -15,6 +15,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [role, setRole] = useState("고객");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
@@ -23,6 +24,10 @@ export default function SignupPage() {
     e.preventDefault();
     setError("");
     setNotice("");
+    if (!agreed) {
+      setError("개인정보 수집 및 이용에 동의해야 가입할 수 있습니다.");
+      return;
+    }
     if (password.length < 6) {
       setError("비밀번호는 6자 이상 입력해주세요.");
       return;
@@ -84,7 +89,21 @@ export default function SignupPage() {
             </button>
           ))}
         </div>
-        <button className="btn w-full justify-center" disabled={loading} type="submit">
+
+        <label className="flex items-start gap-2 mb-5 text-xs text-inkDim leading-relaxed cursor-pointer">
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+            className="mt-0.5 shrink-0"
+          />
+          <span>
+            <Link href="/privacy" target="_blank" className="text-accent font-medium underline">개인정보처리방침</Link>
+            에 따른 개인정보 수집 및 이용에 동의합니다. (필수)
+          </span>
+        </label>
+
+        <button className="btn w-full justify-center" disabled={loading || !agreed} type="submit">
           {loading ? "가입 중…" : "가입 완료"}
         </button>
         <p className="text-xs text-inkDim text-center mt-3 leading-relaxed">
