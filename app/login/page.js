@@ -34,7 +34,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
       <div className="flex-1 hidden md:flex flex-col justify-center px-16 border-r border-border bg-gradient-to-br from-white to-bg">
-        <div className="font-display font-bold text-lg mb-10">지니어스 <span className="text-inkDim font-mono text-xs align-middle">JINIUS</span></div>
+        <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-48 h-auto mb-10" />
         <div className="font-display text-2xl text-inkDim leading-relaxed">
           건물·시설 관리업무의 스마트한 시작<br />
           <strong className="text-ink text-4xl block mt-1">지니어스</strong>
@@ -42,7 +42,10 @@ export default function LoginPage() {
       </div>
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface">
         <form onSubmit={handleSubmit} className="w-full max-w-sm">
-          <div className="font-display font-bold text-accent tracking-widest text-center mb-6">WELCOME</div>
+          <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-40 h-auto mx-auto mb-4" />
+          <div className="text-center text-sm text-inkDim mb-6">
+            안녕하세요! 지니어스와 함께 건물을 더 스마트하게 관리해보세요.
+          </div>
           {error && (
             <div className="border border-warn text-warn bg-warn/10 text-sm rounded-lg px-3 py-2 mb-3">{error}</div>
           )}
