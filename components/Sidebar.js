@@ -111,4 +111,39 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
                       <div className="flex flex-col gap-0.5 ml-4 border-l border-border pl-2 mb-1">
                         {buildingSubItemsForRole.map((item) => {
                           const href = `${item.hrefBase}?building=${b.id}`;
-                          const active =
+                          const active = pathname === item.hrefBase && currentBuildingId === b.id;
+                          return (
+                            <Link
+                              key={item.hrefBase}
+                              href={href}
+                              onClick={() => setManualExpanded(b.id)}
+                              className={
+                                "px-3 py-1.5 rounded-lg text-xs font-medium " +
+                                (active ? "bg-surface2 text-ink" : "text-inkDim hover:bg-surface2")
+                              }
+                            >
+                              {item.label}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </nav>
+      {loginTime && (
+        <div className="text-[11px] text-inkDim mt-4 leading-relaxed">
+          <div>접속일시: {formatDateTime(loginAt)}</div>
+          <div>경과시간: {formatElapsed(now - loginTime)}</div>
+        </div>
+      )}
+      <button onClick={handleLogout} className="text-sm text-inkDim hover:text-danger text-left mt-2">
+        로그아웃
+      </button>
+    </aside>
+  );
+}
