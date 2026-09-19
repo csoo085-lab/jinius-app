@@ -44,7 +44,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="w-full max-w-sm">
           <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-40 h-auto mx-auto mb-4" />
           <div className="text-center text-sm text-inkDim mb-6">
-            안녕하세요! 지니어스와 함께 건물을 더 스마트하게 관리해보세요.
+            스마트한 건물관리 지니어스가 함께합니다
           </div>
           {error && (
             <div className="border border-warn text-warn bg-warn/10 text-sm rounded-lg px-3 py-2 mb-3">{error}</div>
