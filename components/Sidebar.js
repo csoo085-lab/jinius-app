@@ -59,8 +59,7 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
 
   return (
     <aside className="w-56 shrink-0 bg-surface border-r border-border flex flex-col p-4 print:hidden overflow-y-auto">
-      <div className="font-display font-bold text-base mb-1">지니어스</div>
-      <div className="font-mono text-[10px] text-inkDim mb-4">JINIUS</div>
+      <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-full h-auto mb-4" />
       <div className="text-xs text-inkDim mb-4">
         {displayName} · <span className="text-accent font-semibold">{role}</span>
       </div>
@@ -112,39 +111,4 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
                       <div className="flex flex-col gap-0.5 ml-4 border-l border-border pl-2 mb-1">
                         {buildingSubItemsForRole.map((item) => {
                           const href = `${item.hrefBase}?building=${b.id}`;
-                          const active = pathname === item.hrefBase && currentBuildingId === b.id;
-                          return (
-                            <Link
-                              key={item.hrefBase}
-                              href={href}
-                              onClick={() => setManualExpanded(b.id)}
-                              className={
-                                "px-3 py-1.5 rounded-lg text-xs font-medium " +
-                                (active ? "bg-surface2 text-ink" : "text-inkDim hover:bg-surface2")
-                              }
-                            >
-                              {item.label}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </nav>
-      {loginTime && (
-        <div className="text-[11px] text-inkDim mt-4 leading-relaxed">
-          <div>접속일시: {formatDateTime(loginAt)}</div>
-          <div>경과시간: {formatElapsed(now - loginTime)}</div>
-        </div>
-      )}
-      <button onClick={handleLogout} className="text-sm text-inkDim hover:text-danger text-left mt-2">
-        로그아웃
-      </button>
-    </aside>
-  );
-}
+                          const active =
