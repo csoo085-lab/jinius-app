@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabaseClient";
 
 const ROLES = ["관리자", "담당자", "고객"];
 
-export default function UsersManager({ profiles, myId }) {
+export default function UsersManager({ profiles, myId, buildings = [] }) {
   const supabase = createClient();
   const router = useRouter();
 
@@ -19,6 +19,16 @@ export default function UsersManager({ profiles, myId }) {
     const { error } = await supabase.from("profiles").update({ approved }).eq("id", id);
     if (error) { alert("변경 실패: " + error.message); return; }
     router.refresh();
+  }
+
+  async function changeBuilding(id, buildingId) {
+    const { error } = await supabase.from("profiles").update({ building_id: buildingId || null }).eq("id", id);
+    if (error) { alert("변경 실패: " + error.message); return; }
+    router.refresh();
+  }
+
+  function buildingName(id) {
+    return buildings.find((b) => b.id === id)?.name || "";
   }
 
   const pending = profiles.filter((p) => !p.approved);
@@ -35,6 +45,8 @@ export default function UsersManager({ profiles, myId }) {
             <thead>
               <tr className="text-left text-xs text-inkDim border-b border-borderBright">
                 <th className="py-2">이름</th>
+                <th className="py-2">구분</th>
+                <th className="py-2">건물</th>
                 <th className="py-2">역할</th>
                 <th className="py-2">가입일</th>
                 <th className="py-2"></th>
@@ -44,6 +56,15 @@ export default function UsersManager({ profiles, myId }) {
               {pending.map((p) => (
                 <tr key={p.id} className="border-b border-border">
                   <td className="py-2">{p.display_name}</td>
+                  <td className="py-2">
+                    {p.member_type && <span className="tag text-[10px]">{p.member_type}</span>}
+                  </td>
+                  <td className="py-2">
+                    <select value={p.building_id || ""} onChange={(e) => changeBuilding(p.id, e.target.value)} className="w-28">
+                      <option value="">미지정</option>
+                      {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </td>
                   <td className="py-2">
                     <select value={p.role} onChange={(e) => changeRole(p.id, e.target.value)} className="w-28">
                       {ROLES.map((r) => <option key={r}>{r}</option>)}
@@ -68,6 +89,8 @@ export default function UsersManager({ profiles, myId }) {
           <thead>
             <tr className="text-left text-xs text-inkDim border-b border-borderBright">
               <th className="py-2">이름</th>
+              <th className="py-2">구분</th>
+              <th className="py-2">건물</th>
               <th className="py-2">역할</th>
               <th className="py-2">승인상태</th>
               <th className="py-2">가입일</th>
@@ -77,6 +100,15 @@ export default function UsersManager({ profiles, myId }) {
             {approvedList.map((p) => (
               <tr key={p.id} className="border-b border-border">
                 <td className="py-2">{p.display_name} {p.id === myId && <span className="tag border-accent text-accent ml-1">나</span>}</td>
+                <td className="py-2">
+                  {p.member_type && <span className="tag text-[10px]">{p.member_type}</span>}
+                </td>
+                <td className="py-2">
+                  <select value={p.building_id || ""} onChange={(e) => changeBuilding(p.id, e.target.value)} className="w-28">
+                    <option value="">미지정</option>
+                    {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </td>
                 <td className="py-2">
                   <select value={p.role} onChange={(e) => changeRole(p.id, e.target.value)} className="w-28">
                     {ROLES.map((r) => <option key={r}>{r}</option>)}
