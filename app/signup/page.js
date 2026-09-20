@@ -90,17 +90,16 @@ export default function SignupPage() {
           ))}
         </div>
 
-        <label className="flex items-start gap-2 mb-5 text-xs text-inkDim leading-relaxed cursor-pointer w-full">
+        <label className="block mb-5 text-xs text-inkDim leading-relaxed cursor-pointer">
           <input
             type="checkbox"
             checked={agreed}
             onChange={(e) => setAgreed(e.target.checked)}
-            className="mt-0.5 shrink-0"
+            style={{ verticalAlign: "top", marginTop: "2px" }}
+            className="mr-2"
           />
-          <span className="flex-1 min-w-0">
-            <Link href="/privacy" target="_blank" className="text-accent font-medium underline">개인정보처리방침</Link>
-            에 따른 개인정보 수집 및 이용에 동의합니다. (필수)
-          </span>
+          <Link href="/privacy" target="_blank" className="text-accent font-medium underline">개인정보처리방침</Link>
+          에 따른 개인정보 수집 및 이용에 동의합니다. (필수)
         </label>
 
         <button className="btn w-full justify-center" disabled={loading || !agreed} type="submit">
