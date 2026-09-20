@@ -48,10 +48,10 @@ export default function SignupPage() {
       return;
     }
     if (data.session) {
-      router.push("/dashboard");
+      router.push("/pending");
       router.refresh();
     } else {
-      setNotice("가입 확인 이메일을 보냈습니다. 메일함을 확인한 뒤 로그인해주세요. (관리자가 이메일 확인을 껐다면 바로 로그인하셔도 됩니다.)");
+      setNotice("가입 확인 이메일을 보냈습니다. 메일함을 확인한 뒤 로그인해주세요. 로그인 후에는 관리자 승인이 완료될 때까지 대기 화면이 표시됩니다.");
     }
   }
 
@@ -108,6 +108,8 @@ export default function SignupPage() {
         </button>
         <p className="text-xs text-inkDim text-center mt-3 leading-relaxed">
           가장 먼저 가입하는 계정은 역할과 관계없이 자동으로 관리자가 됩니다.
+          <br />
+          그 외 가입자는 관리자 승인 후 서비스를 이용하실 수 있습니다.
         </p>
         <div className="text-center text-sm mt-4">
           <Link href="/login" className="text-accent font-medium">로그인 화면으로</Link>
