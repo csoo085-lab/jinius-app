@@ -1,16 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
 
 const ROLES = ["관리자", "담당자", "고객"];
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
+  const buildingCode = searchParams.get("b");
+
+  const [buildingName, setBuildingName] = useState("");
+  const [checkingBuilding, setCheckingBuilding] = useState(!!buildingCode);
+
   const [displayName, setDisplayName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
@@ -19,6 +26,14 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!buildingCode) return;
+    supabase.rpc("get_building_name_by_code", { p_code: buildingCode }).then(({ data }) => {
+      setBuildingName(data || "");
+      setCheckingBuilding(false);
+    });
+  }, [buildingCode]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -36,11 +51,41 @@ export default function SignupPage() {
       setError("비밀번호가 일치하지 않습니다.");
       return;
     }
+
     setLoading(true);
+
+    let signUpOptions = { data: { display_name: displayName || email.split("@")[0], role } };
+
+    if (buildingCode) {
+      if (!phone.trim()) {
+        setLoading(false);
+        setError("전화번호를 입력해주세요.");
+        return;
+      }
+      const { data: matches, error: rpcError } = await supabase.rpc("verify_building_signup", {
+        p_code: buildingCode,
+        p_phone: phone,
+      });
+      if (rpcError || !matches || matches.length === 0) {
+        setLoading(false);
+        setError("등록된 임대인·임차인 정보와 일치하지 않습니다. 관리사무소에 문의해주세요.");
+        return;
+      }
+      const match = matches[0];
+      signUpOptions = {
+        data: {
+          display_name: displayName || email.split("@")[0],
+          building_id: match.building_id,
+          member_type: match.member_type,
+          phone: phone.trim(),
+        },
+      };
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { display_name: displayName || email.split("@")[0], role } },
+      options: signUpOptions,
     });
     setLoading(false);
     if (error) {
@@ -59,11 +104,34 @@ export default function SignupPage() {
     <div className="min-h-screen flex items-center justify-center bg-surface p-8">
       <form onSubmit={handleSubmit} className="w-full max-w-sm">
         <div className="font-display font-bold text-accent tracking-widest text-center mb-6">회원가입</div>
+
+        {buildingCode && (
+          <div className="border border-accent/40 text-accent bg-accent/10 text-xs rounded-lg px-3 py-2 mb-3 text-center">
+            {checkingBuilding
+              ? "가입 링크 확인 중…"
+              : buildingName
+              ? `${buildingName} 입주민 전용 가입 링크입니다.`
+              : "유효하지 않은 가입 링크입니다. QR코드를 다시 확인해주세요."}
+          </div>
+        )}
+
         {error && <div className="border border-warn text-warn bg-warn/10 text-sm rounded-lg px-3 py-2 mb-3">{error}</div>}
         {notice && <div className="border border-ok text-ok bg-ok/10 text-sm rounded-lg px-3 py-2 mb-3">{notice}</div>}
+
         <div className="mb-3">
           <input placeholder="이름 (표시용)" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
         </div>
+
+        {buildingCode && (
+          <div className="mb-3">
+            <input
+              placeholder="전화번호 (등록된 번호와 동일하게 입력)"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
+        )}
+
         <div className="mb-3">
           <input type="email" required placeholder="이메일" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
@@ -73,22 +141,33 @@ export default function SignupPage() {
         <div className="mb-4">
           <input type="password" required placeholder="비밀번호 확인" value={password2} onChange={(e) => setPassword2(e.target.value)} />
         </div>
-        <label className="text-xs text-inkDim font-medium block mb-1">역할</label>
-        <div className="flex gap-2 mb-5">
-          {ROLES.map((r) => (
-            <button
-              type="button"
-              key={r}
-              onClick={() => setRole(r)}
-              className={
-                "flex-1 py-2 rounded-lg text-sm border " +
-                (role === r ? "bg-accent text-white border-accent font-semibold" : "bg-surface2 border-border text-inkDim")
-              }
-            >
-              {r}
-            </button>
-          ))}
-        </div>
+
+        {!buildingCode && (
+          <>
+            <label className="text-xs text-inkDim font-medium block mb-1">역할</label>
+            <div className="flex gap-2 mb-5">
+              {ROLES.map((r) => (
+                <button
+                  type="button"
+                  key={r}
+                  onClick={() => setRole(r)}
+                  className={
+                    "flex-1 py-2 rounded-lg text-sm border " +
+                    (role === r ? "bg-accent text-white border-accent font-semibold" : "bg-surface2 border-border text-inkDim")
+                  }
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {buildingCode && (
+          <div className="text-xs text-inkDim mb-5">
+            역할은 등록된 임대인·임차인 정보에 따라 자동으로 부여됩니다.
+          </div>
+        )}
 
         <label className="block mb-5 text-xs text-inkDim leading-relaxed cursor-pointer">
           <input
@@ -115,5 +194,13 @@ export default function SignupPage() {
         </div>
       </form>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupForm />
+    </Suspense>
   );
 }
