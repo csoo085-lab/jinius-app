@@ -4,9 +4,43 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: light dark;
+
+  --bg: 243 245 248;
+  --surface: 255 255 255;
+  --surface2: 240 242 246;
+  --border: 226 230 237;
+  --borderBright: 207 213 224;
+  --ink: 31 37 48;
+  --inkDim: 113 121 138;
+  --accent: 0 76 212;
+  --accent2: 38 47 110;
+  --ok: 47 158 99;
+  --warn: 209 140 31;
+  --danger: 217 76 76;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: 16 19 25;
+    --surface: 23 27 35;
+    --surface2: 31 36 48;
+    --border: 42 48 64;
+    --borderBright: 58 66 86;
+    --ink: 233 236 242;
+    --inkDim: 154 163 182;
+    --accent: 91 141 255;
+    --accent2: 143 164 255;
+    --ok: 78 203 138;
+    --warn: 240 172 74;
+    --danger: 255 107 107;
+  }
+}
+
 html, body {
-  background: #f3f5f8;
-  color: #1f2530;
+  background: rgb(var(--bg));
+  color: rgb(var(--ink));
   font-family: 'Inter', sans-serif;
 }
 
