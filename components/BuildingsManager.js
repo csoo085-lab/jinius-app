@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+
+const ROLES = ["관리자", "담당자", "고객"];
+const MEMBER_TYPES = ["임차인", "임대인"];
 
 const BANK_LIST = [
   "KB국민은행", "신한은행", "우리은행", "하나은행", "IBK기업은행",
@@ -97,13 +100,191 @@ function buildingSummaryFields(b) {
   return FIELD_LABELS.map(([key, label]) => [label, raw[key]]).filter(([, v]) => v);
 }
 
-export default function BuildingsManager({ initialBuildings, initialExpandedId }) {
+function RoleMappingCard({ initialSettings }) {
+  const supabase = createClient();
+  const router = useRouter();
+  const getVal = (key, fallback) => initialSettings.find((s) => s.key === key)?.value || fallback;
+  const [landlordRole, setLandlordRole] = useState(getVal("role_landlord", "고객"));
+  const [tenantRole, setTenantRole] = useState(getVal("role_tenant", "고객"));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    const { error } = await supabase.from("app_settings").upsert([
+      { key: "role_landlord", value: landlordRole },
+      { key: "role_tenant", value: tenantRole },
+    ]);
+    setSaving(false);
+    if (error) { alert("저장 실패: " + error.message); return; }
+    alert("저장되었습니다.");
+    router.refresh();
+  }
+
+  return (
+    <div className="card mb-4">
+      <div className="font-semibold text-sm mb-3">QR코드 가입 시 자동 역할 부여</div>
+      <div className="text-xs text-inkDim mb-3">
+        등록된 전화번호가 임대인/임차인 중 어느 쪽과 일치하는지에 따라, 가입 시 아래 역할이 자동으로 부여됩니다.
+        (활성화는 여전히 관리자 승인이 필요합니다)
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-xs text-inkDim font-medium">임대인 → 역할
+          <select value={landlordRole} onChange={(e) => setLandlordRole(e.target.value)}>
+            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <label className="text-xs text-inkDim font-medium">임차인 → 역할
+          <select value={tenantRole} onChange={(e) => setTenantRole(e.target.value)}>
+            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="flex justify-end mt-3">
+        <button type="button" className="btn text-xs" disabled={saving} onClick={save}>{saving ? "저장 중…" : "저장"}</button>
+      </div>
+    </div>
+  );
+}
+
+function BuildingQrSection({ building, onRegenerated }) {
+  const supabase = createClient();
+  const [origin, setOrigin] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const signupUrl = origin ? `${origin}/signup?b=${building.invite_code}` : "";
+
+  async function regenerate() {
+    if (!confirm("코드를 재발급하면 기존 QR코드/링크는 더 이상 작동하지 않습니다. 계속할까요?")) return;
+    setBusy(true);
+    const newCode = Math.random().toString(16).slice(2, 10);
+    const { error } = await supabase.from("buildings").update({ invite_code: newCode }).eq("id", building.id);
+    setBusy(false);
+    if (error) { alert("재발급 실패: " + error.message); return; }
+    onRegenerated();
+  }
+
+  function copyLink() {
+    if (!signupUrl) return;
+    navigator.clipboard.writeText(signupUrl).then(() => alert("링크가 복사되었습니다."));
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border">
+      <div className="font-semibold text-sm mb-2">입주민 가입 QR코드</div>
+      {signupUrl && (
+        <div className="flex flex-col sm:flex-row gap-4 items-start">
+          <img
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(signupUrl)}`}
+            alt="가입 QR코드"
+            className="w-36 h-36 border border-border rounded-lg bg-white p-1"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs text-inkDim mb-2">이 QR코드를 건물 입구 등에 붙여두면, 입주민이 스캔해서 가입할 수 있습니다.</div>
+            <div className="bg-surface2 border border-border rounded-lg px-3 py-2 text-xs font-mono break-all mb-2">{signupUrl}</div>
+            <div className="flex gap-2">
+              <button type="button" className="btn-ghost text-xs" onClick={copyLink}>링크 복사</button>
+              <button type="button" className="btn-ghost text-xs text-danger" disabled={busy} onClick={regenerate}>
+                {busy ? "재발급 중…" : "코드 재발급"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuildingMembersSection({ buildingId, members, onChanged }) {
+  const supabase = createClient();
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [type, setType] = useState("임차인");
+  const [adding, setAdding] = useState(false);
+
+  async function addMember() {
+    if (!phone.trim()) { alert("전화번호를 입력해주세요."); return; }
+    setAdding(true);
+    const { error } = await supabase.from("building_members").insert({
+      building_id: buildingId,
+      name: name.trim(),
+      phone: phone.trim(),
+      member_type: type,
+    });
+    setAdding(false);
+    if (error) { alert("추가 실패: " + error.message); return; }
+    setName(""); setPhone("");
+    onChanged();
+  }
+
+  async function removeMember(id) {
+    if (!confirm("이 입주민 정보를 삭제할까요?")) return;
+    const { error } = await supabase.from("building_members").delete().eq("id", id);
+    if (error) { alert("삭제 실패: " + error.message); return; }
+    onChanged();
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border">
+      <div className="font-semibold text-sm mb-2">등록된 임대인·임차인 ({members.length}명)</div>
+      <div className="text-xs text-inkDim mb-3">여기 등록된 전화번호와 일치해야 QR코드로 가입할 수 있습니다.</div>
+      <div className="grid grid-cols-[1fr_1fr_100px_60px] gap-2 items-center mb-3">
+        <input placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder="전화번호 (예: 010-1234-5678)" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        <select value={type} onChange={(e) => setType(e.target.value)}>
+          {MEMBER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <button type="button" className="btn text-xs" disabled={adding} onClick={addMember}>추가</button>
+      </div>
+      {members.length > 0 && (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-inkDim border-b border-borderBright">
+              <th className="py-1.5">이름</th>
+              <th className="py-1.5">전화번호</th>
+              <th className="py-1.5">구분</th>
+              <th className="py-1.5"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((m) => (
+              <tr key={m.id} className="border-b border-border">
+                <td className="py-1.5">{m.name || "-"}</td>
+                <td className="py-1.5 font-mono text-xs">{m.phone}</td>
+                <td className="py-1.5">
+                  <span className="tag">{m.member_type}</span>
+                </td>
+                <td className="py-1.5 text-right">
+                  <button type="button" className="text-danger text-xs" onClick={() => removeMember(m.id)}>삭제</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+export default function BuildingsManager({ initialBuildings, initialExpandedId, initialMembers = [], initialSettings = [] }) {
   const supabase = createClient();
   const router = useRouter();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);
   const [expandedId, setExpandedId] = useState(initialExpandedId || null);
+
+  const membersByBuilding = useMemo(() => {
+    const map = {};
+    initialMembers.forEach((m) => {
+      if (!map[m.building_id]) map[m.building_id] = [];
+      map[m.building_id].push(m);
+    });
+    return map;
+  }, [initialMembers]);
 
   async function addBuilding() {
     if (!name.trim()) return;
@@ -125,6 +306,9 @@ export default function BuildingsManager({ initialBuildings, initialExpandedId }
   return (
     <div>
       <h1 className="font-display font-bold text-xl mb-5">건물 정보</h1>
+
+      <RoleMappingCard initialSettings={initialSettings} />
+
       <div className="card mb-4">
         <div className="flex gap-2">
           <input
@@ -158,20 +342,28 @@ export default function BuildingsManager({ initialBuildings, initialExpandedId }
                 </div>
               </div>
               {isExpanded && (
-                fields.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                    {fields.map(([label, value]) => (
-                      <label key={label} className="text-xs text-inkDim font-medium">
-                        {label}
-                        <div className="bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-ink mt-1">
-                          {value}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs text-inkDim mt-3">등록된 상세 정보가 없습니다. &quot;건물 정보 수정&quot;을 눌러 입력하세요.</div>
-                )
+                <>
+                  {fields.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                      {fields.map(([label, value]) => (
+                        <label key={label} className="text-xs text-inkDim font-medium">
+                          {label}
+                          <div className="bg-surface2 border border-border rounded-lg px-3 py-2 text-sm text-ink mt-1">
+                            {value}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-inkDim mt-3">등록된 상세 정보가 없습니다. &quot;건물 정보 수정&quot;을 눌러 입력하세요.</div>
+                  )}
+                  <BuildingQrSection building={b} onRegenerated={() => router.refresh()} />
+                  <BuildingMembersSection
+                    buildingId={b.id}
+                    members={membersByBuilding[b.id] || []}
+                    onChanged={() => router.refresh()}
+                  />
+                </>
               )}
             </div>
           );
