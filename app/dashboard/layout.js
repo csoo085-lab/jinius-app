@@ -4,8 +4,9 @@ import { getCurrentUser } from "@/lib/session";
 import Sidebar from "@/components/Sidebar";
 
 export default async function DashboardLayout({ children }) {
-  const { user, role, displayName } = await getCurrentUser();
+  const { user, role, displayName, approved } = await getCurrentUser();
   if (!user) redirect("/login");
+  if (!approved) redirect("/pending");
 
   const supabase = createClient();
   const { data: buildings } = await supabase
