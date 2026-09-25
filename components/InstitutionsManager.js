@@ -60,9 +60,10 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
     router.refresh();
   }
 
+  const sortedInstitutions = [...initialInstitutions].sort((a, b) => a.name.localeCompare(b.name, "ko"));
   const linksForBuilding = initialLinks.filter((l) => l.building_id === buildingId);
   const linkedInstitutionIds = new Set(linksForBuilding.map((l) => l.institution_id));
-  const availableInstitutions = initialInstitutions.filter((i) => !linkedInstitutionIds.has(i.id));
+  const availableInstitutions = sortedInstitutions.filter((i) => !linkedInstitutionIds.has(i.id));
 
   return (
     <div>
@@ -73,7 +74,7 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
           <div className="font-semibold text-sm">공통 기관·업체 목록</div>
           <button className="btn text-xs" onClick={() => setEditingInst("new")}>+ 추가</button>
         </div>
-        {initialInstitutions.length === 0 ? (
+        {sortedInstitutions.length === 0 ? (
           <div className="text-sm text-inkDim">등록된 기관·업체가 없습니다.</div>
         ) : (
           <table className="w-full text-sm">
@@ -88,7 +89,7 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
               </tr>
             </thead>
             <tbody>
-              {initialInstitutions.map((inst) => (
+              {sortedInstitutions.map((inst) => (
                 <tr key={inst.id} className="border-b border-border">
                   <td className="py-2">{inst.name}</td>
                   <td className="py-2"><span className="tag">{inst.org_type}</span></td>
