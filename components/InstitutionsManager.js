@@ -5,10 +5,14 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
 const ORG_TYPES = ["공공기관", "협력업체", "관공서", "기타"];
+const CATEGORIES = [
+  "소방안전", "승강기안전", "기계식주차안전", "전기안전", "주차차단기",
+  "소독방역", "청소", "보안", "인터넷", "전기요금", "수도요금", "기타",
+];
 const DOC_TYPES = ["고지서", "점검보고서", "기타"];
 
 function emptyInstitution() {
-  return { name: "", org_type: "공공기관", category: "", office_phone: "", manager_phone: "", address: "", notes: "" };
+  return { name: "", org_type: "공공기관", category: CATEGORIES[0], office_phone: "", manager_phone: "", address: "", notes: "" };
 }
 
 function PhoneLink({ number }) {
@@ -216,7 +220,7 @@ function InstitutionModal({ institution, onClose, onSaved }) {
   const [form, setForm] = useState(institution ? {
     name: institution.name || "",
     org_type: institution.org_type || "공공기관",
-    category: institution.category || "",
+    category: institution.category || CATEGORIES[0],
     office_phone: institution.office_phone || "",
     manager_phone: institution.manager_phone || "",
     address: institution.address || "",
@@ -232,7 +236,7 @@ function InstitutionModal({ institution, onClose, onSaved }) {
     const payload = {
       name: form.name.trim(),
       org_type: form.org_type,
-      category: form.category.trim(),
+      category: form.category,
       office_phone: form.office_phone.trim(),
       manager_phone: form.manager_phone.trim(),
       address: form.address.trim(),
@@ -260,7 +264,9 @@ function InstitutionModal({ institution, onClose, onSaved }) {
             </select>
           </label>
           <label className="text-xs text-inkDim font-medium">분류
-            <input value={form.category} onChange={(e) => set("category", e.target.value)} placeholder="예: 전기, 소방, 승강기" />
+            <select value={form.category} onChange={(e) => set("category", e.target.value)}>
+              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </label>
           <label className="text-xs text-inkDim font-medium">사무실 전화번호
             <input value={form.office_phone} onChange={(e) => set("office_phone", e.target.value)} placeholder="예: 051-123-4567" />
