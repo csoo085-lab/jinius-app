@@ -8,7 +8,16 @@ const ORG_TYPES = ["공공기관", "협력업체", "관공서", "기타"];
 const DOC_TYPES = ["고지서", "점검보고서", "기타"];
 
 function emptyInstitution() {
-  return { name: "", org_type: "공공기관", category: "", phone: "", address: "", notes: "" };
+  return { name: "", org_type: "공공기관", category: "", office_phone: "", manager_phone: "", address: "", notes: "" };
+}
+
+function PhoneLink({ number }) {
+  if (!number) return <span>-</span>;
+  return (
+    <a href={`tel:${number}`} className="text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
+      {number}
+    </a>
+  );
 }
 
 export default function InstitutionsManager({ initialInstitutions, buildings, initialLinks }) {
@@ -73,7 +82,8 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
                 <th className="py-2">이름</th>
                 <th className="py-2">구분</th>
                 <th className="py-2">분류</th>
-                <th className="py-2">전화번호</th>
+                <th className="py-2">사무실 전화</th>
+                <th className="py-2">담당자 전화</th>
                 <th className="py-2"></th>
               </tr>
             </thead>
@@ -83,7 +93,8 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
                   <td className="py-2">{inst.name}</td>
                   <td className="py-2"><span className="tag">{inst.org_type}</span></td>
                   <td className="py-2 text-inkDim">{inst.category || "-"}</td>
-                  <td className="py-2 font-mono text-xs">{inst.phone || "-"}</td>
+                  <td className="py-2 font-mono text-xs"><PhoneLink number={inst.office_phone} /></td>
+                  <td className="py-2 font-mono text-xs"><PhoneLink number={inst.manager_phone} /></td>
                   <td className="py-2 text-right">
                     <button className="text-accent text-xs mr-2" onClick={() => setEditingInst(inst)}>수정</button>
                     <button className="text-danger text-xs" onClick={() => removeInstitution(inst.id)}>삭제</button>
@@ -122,6 +133,8 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
                 <thead>
                   <tr className="text-left text-xs text-inkDim border-b border-borderBright">
                     <th className="py-2">기관·업체</th>
+                    <th className="py-2">사무실 전화</th>
+                    <th className="py-2">담당자 전화</th>
                     <th className="py-2">고객번호</th>
                     <th className="py-2">계약정보</th>
                     <th className="py-2"></th>
@@ -134,6 +147,8 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
                         {l.institutions?.name}
                         <span className="tag ml-1 text-[10px]">{l.institutions?.org_type}</span>
                       </td>
+                      <td className="py-2 font-mono text-xs"><PhoneLink number={l.institutions?.office_phone} /></td>
+                      <td className="py-2 font-mono text-xs"><PhoneLink number={l.institutions?.manager_phone} /></td>
                       <td className="py-2 font-mono text-xs">{l.customer_number || "-"}</td>
                       <td className="py-2 text-inkDim">{l.contract_info || "-"}</td>
                       <td className="py-2 text-right">
@@ -170,7 +185,8 @@ function InstitutionModal({ institution, onClose, onSaved }) {
     name: institution.name || "",
     org_type: institution.org_type || "공공기관",
     category: institution.category || "",
-    phone: institution.phone || "",
+    office_phone: institution.office_phone || "",
+    manager_phone: institution.manager_phone || "",
     address: institution.address || "",
     notes: institution.notes || "",
   } : emptyInstitution());
@@ -185,7 +201,8 @@ function InstitutionModal({ institution, onClose, onSaved }) {
       name: form.name.trim(),
       org_type: form.org_type,
       category: form.category.trim(),
-      phone: form.phone.trim(),
+      office_phone: form.office_phone.trim(),
+      manager_phone: form.manager_phone.trim(),
       address: form.address.trim(),
       notes: form.notes.trim(),
     };
@@ -213,8 +230,11 @@ function InstitutionModal({ institution, onClose, onSaved }) {
           <label className="text-xs text-inkDim font-medium">분류
             <input value={form.category} onChange={(e) => set("category", e.target.value)} placeholder="예: 전기, 소방, 승강기" />
           </label>
-          <label className="text-xs text-inkDim font-medium">전화번호
-            <input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+          <label className="text-xs text-inkDim font-medium">사무실 전화번호
+            <input value={form.office_phone} onChange={(e) => set("office_phone", e.target.value)} placeholder="예: 051-123-4567" />
+          </label>
+          <label className="text-xs text-inkDim font-medium">담당자 전화번호
+            <input value={form.manager_phone} onChange={(e) => set("manager_phone", e.target.value)} placeholder="예: 010-1234-5678" />
           </label>
           <label className="text-xs text-inkDim font-medium">주소
             <input value={form.address} onChange={(e) => set("address", e.target.value)} />
