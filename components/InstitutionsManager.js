@@ -30,6 +30,8 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
   const [customerNumber, setCustomerNumber] = useState("");
   const [contractInfo, setContractInfo] = useState("");
   const [docsLink, setDocsLink] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterOrgType, setFilterOrgType] = useState("전체");
 
   async function removeInstitution(id) {
     if (!confirm("이 기관·업체를 삭제할까요? 건물별 연결 정보도 함께 삭제됩니다.")) return;
@@ -61,6 +63,19 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
   }
 
   const sortedInstitutions = [...initialInstitutions].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+
+  const filteredInstitutions = sortedInstitutions.filter((inst) => {
+    if (filterOrgType !== "전체" && inst.org_type !== filterOrgType) return false;
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return true;
+    return (
+      inst.name.toLowerCase().includes(term) ||
+      (inst.category || "").toLowerCase().includes(term) ||
+      (inst.office_phone || "").includes(term) ||
+      (inst.manager_phone || "").includes(term)
+    );
+  });
+
   const linksForBuilding = initialLinks.filter((l) => l.building_id === buildingId);
   const linkedInstitutionIds = new Set(linksForBuilding.map((l) => l.institution_id));
   const availableInstitutions = sortedInstitutions.filter((i) => !linkedInstitutionIds.has(i.id));
@@ -70,12 +85,28 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
       <h1 className="font-display font-bold text-xl mb-5">기관·업체</h1>
 
       <div className="card mb-4">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="font-semibold text-sm">공통 기관·업체 목록</div>
           <button className="btn text-xs" onClick={() => setEditingInst("new")}>+ 추가</button>
         </div>
+
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <input
+            placeholder="이름, 분류, 전화번호로 검색"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1 min-w-[180px]"
+          />
+          <select value={filterOrgType} onChange={(e) => setFilterOrgType(e.target.value)} className="w-32">
+            <option value="전체">전체</option>
+            {ORG_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+
         {sortedInstitutions.length === 0 ? (
           <div className="text-sm text-inkDim">등록된 기관·업체가 없습니다.</div>
+        ) : filteredInstitutions.length === 0 ? (
+          <div className="text-sm text-inkDim">검색 결과가 없습니다.</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -89,7 +120,7 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
               </tr>
             </thead>
             <tbody>
-              {sortedInstitutions.map((inst) => (
+              {filteredInstitutions.map((inst) => (
                 <tr key={inst.id} className="border-b border-border">
                   <td className="py-2">{inst.name}</td>
                   <td className="py-2"><span className="tag">{inst.org_type}</span></td>
