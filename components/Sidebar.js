@@ -31,6 +31,12 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
   const [now, setNow] = useState(() => Date.now());
   // null = URL 기준으로 자동 펼침, "" = 사용자가 전부 접음, 그 외 = 사용자가 지정한 건물 ID
   const [manualExpanded, setManualExpanded] = useState(null);
+  // 모바일 화면에서 메뉴(사이드바)를 펼쳤는지 여부
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname, searchParams]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -58,8 +64,39 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
   const loginTime = loginAt ? new Date(loginAt).getTime() : null;
 
   return (
-    <aside className="w-56 shrink-0 bg-surface border-r border-border flex flex-col p-4 print:hidden overflow-y-auto">
-      <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-32 h-auto mb-4" />
+    <>
+      {/* 모바일 전용 상단 바 (햄버거 버튼) */}
+      <div className="md:hidden fixed top-0 inset-x-0 h-14 bg-surface border-b border-border z-40 flex items-center gap-3 px-4 print:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileOpen((v) => !v)}
+          aria-label="메뉴 열기/닫기"
+          className="w-9 h-9 -ml-1 flex items-center justify-center rounded-lg hover:bg-surface2 shrink-0"
+        >
+          <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+        <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="h-6 w-auto" />
+      </div>
+
+      {/* 모바일에서 메뉴가 펼쳐졌을 때 배경 어둡게 처리 (클릭하면 닫힘) */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-40"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside
+        className={
+          "fixed md:static inset-y-0 left-0 z-50 w-64 md:w-56 shrink-0 bg-surface border-r border-border flex flex-col p-4 print:hidden overflow-y-auto transition-transform duration-200 ease-in-out md:translate-x-0 " +
+          (mobileOpen ? "translate-x-0" : "-translate-x-full")
+        }
+      >
+      <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-32 h-auto mb-4 hidden md:block" />
       <div className="text-xs text-inkDim mb-4">
         {displayName} · <span className="text-accent font-semibold">{role}</span>
       </div>
@@ -157,6 +194,7 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
       <button onClick={handleLogout} className="text-sm text-inkDim hover:text-danger text-left mt-2">
         로그아웃
       </button>
-    </aside>
+      </aside>
+    </>
   );
 }
