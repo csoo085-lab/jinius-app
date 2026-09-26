@@ -419,31 +419,43 @@ function BuildingEditModal({ building, staff = [], onClose, onSaved, onGenerated
     if (areaList.length > 0 && areaList.length !== perFloor) {
       if (!confirm(`입력한 면적 개수(${areaList.length}개)가 층당 호실 수(${perFloor}개)와 다릅니다. 부족한 호실은 면적 없이 생성됩니다. 계속할까요?`)) return;
     }
-    const totalPlanned = (end - start + 1) * perFloor;
-    if (!confirm(`${start}층~${end}층, 층당 ${perFloor}호실 → 총 ${totalPlanned}개 호실을 생성합니다.\n(이미 등록된 호실은 건너뜁니다) 계속할까요?`)) return;
 
     setUgBusy(true);
-    const { data: existing, error: fetchErr } = await supabase.from("units").select("ho").eq("building_id", building.id);
+    const { data: existing, error: fetchErr } = await supabase.from("units").select("id, ho").eq("building_id", building.id);
     if (fetchErr) { setUgBusy(false); alert("기존 호실 조회 실패: " + fetchErr.message); return; }
-    const existingHo = new Set((existing || []).map((u) => u.ho));
+
+    // 지정한 층 범위(예: 3층~15층)에 속하는 기존 호실은 모두 교체 대상입니다.
+    const toReplace = (existing || []).filter((u) => {
+      const num = parseInt((u.ho || "").replace(/[^0-9]/g, ""), 10);
+      if (!num) return false;
+      const floor = Math.floor(num / 100);
+      return floor >= start && floor <= end;
+    });
+
+    const totalPlanned = (end - start + 1) * perFloor;
+    const warnLine = toReplace.length > 0
+      ? `\n\n※ ${start}층~${end}층 범위에 이미 등록된 호실 ${toReplace.length}개(입주 정보 등 포함)는 삭제되고 새로 생성됩니다.`
+      : "";
+    if (!confirm(`${start}층~${end}층, 층당 ${perFloor}호실 → 총 ${totalPlanned}개 호실을 생성합니다.${warnLine}\n계속할까요?`)) {
+      setUgBusy(false);
+      return;
+    }
+
+    if (toReplace.length > 0) {
+      const { error: delError } = await supabase.from("units").delete().in("id", toReplace.map((u) => u.id));
+      if (delError) { setUgBusy(false); alert("기존 호실 삭제 실패: " + delError.message); return; }
+    }
 
     const rows = [];
     for (let floor = start; floor <= end; floor++) {
       for (let i = 1; i <= perFloor; i++) {
-        const ho = `${floor * 100 + i}호`;
-        if (existingHo.has(ho)) continue;
-        rows.push({ building_id: building.id, dong: "", ho, area: areaList[i - 1] || null });
+        rows.push({ building_id: building.id, dong: "", ho: `${floor * 100 + i}호`, area: areaList[i - 1] || null });
       }
-    }
-    if (rows.length === 0) {
-      setUgBusy(false);
-      alert("생성할 호실이 없습니다. (해당 범위의 호실이 이미 모두 등록되어 있습니다)");
-      return;
     }
     const { error } = await supabase.from("units").insert(rows);
     setUgBusy(false);
     if (error) { alert("생성 실패: " + error.message); return; }
-    alert(`${rows.length}개 호실이 생성되었습니다. (건너뜀 ${totalPlanned - rows.length}개)\n'세대(호실) 설정' 메뉴에서 확인하세요.`);
+    alert(`${rows.length}개 호실이 생성되었습니다.${toReplace.length > 0 ? ` (기존 ${toReplace.length}개는 삭제 후 교체됨)` : ""}\n'세대(호실) 설정' 메뉴에서 확인하세요.`);
     setUgFloorStart(""); setUgFloorEnd(""); setUgPerFloor(""); setUgAreas("");
     onGenerated?.();
   }
@@ -660,7 +672,7 @@ function BuildingEditModal({ building, staff = [], onClose, onSaved, onGenerated
 
           <div className="text-xs font-semibold text-ink mt-2">호실 자동 생성 → 세대(호실) 설정 반영</div>
           <div className="text-xs text-inkDim -mt-1 mb-1">
-            시작층~끝층, 층당 호실 수, 호실별 면적을 입력하면 &quot;301호&quot;(3층 1번째) 형식으로 자동 생성되어 각 건물의 &quot;세대(호실) 설정&quot; 화면에 그대로 반영됩니다. 층 구성은 범위 내 모든 층에 동일하게 적용되며, 이미 등록된 호실은 건너뜁니다.
+            시작층~끝층, 층당 호실 수, 호실별 면적을 입력하면 &quot;301호&quot;(3층 1번째) 형식으로 자동 생성되어 각 건물의 &quot;세대(호실) 설정&quot; 화면에 그대로 반영됩니다. 층 구성은 범위 내 모든 층에 동일하게 적용되며, 같은 층 범위를 다시 생성하면 해당 범위의 기존 호실(입주 정보 포함)은 삭제되고 새 값으로 교체됩니다.
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-inkDim font-medium">시작층
