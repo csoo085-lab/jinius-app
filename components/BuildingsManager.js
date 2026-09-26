@@ -56,10 +56,12 @@ function emptyForm(b) {
     periodic_inspection_required: b?.periodic_inspection_required || false,
     periodic_inspection_valid_until: b?.periodic_inspection_valid_until || "",
     floor_details: Array.isArray(b?.floor_details) ? b.floor_details : [],
+    manager_id: b?.manager_id || "",
   };
 }
 
 const FIELD_LABELS = [
+  ["manager_name", "담당자"],
   ["company_name", "위탁관리업체"], ["company_phone", "문의전화"],
   ["bank_line", "계좌"], ["due_date_text", "납부마감"], ["late_fee_rate", "연체료율"],
   ["land_address", "대지위치"], ["road_address", "도로명주소"],
@@ -72,7 +74,7 @@ const FIELD_LABELS = [
   ["periodic_inspection_line", "정기점검"],
 ];
 
-function buildingSummaryFields(b) {
+function buildingSummaryFields(b, staffById = {}) {
   const bankLine = b.bank_name ? `${b.bank_name} ${b.bank_account || ""} ${b.account_holder ? "(" + b.account_holder + ")" : ""}`.trim() : "";
   const floorsLine = (b.floors_above || b.floors_below) ? `지상 ${b.floors_above || 0}층 / 지하 ${b.floors_below || 0}층` : "";
   const floorDetailsLine = Array.isArray(b.floor_details) && b.floor_details.length
@@ -87,6 +89,7 @@ function buildingSummaryFields(b) {
     ? `필요${b.periodic_inspection_valid_until ? " (유효기간: " + b.periodic_inspection_valid_until + ")" : ""}`
     : "불필요";
   const raw = {
+    manager_name: b.manager_id ? (staffById[b.manager_id]?.display_name || "알 수 없음") : "",
     company_name: b.company_name, company_phone: b.company_phone, bank_line: bankLine,
     due_date_text: b.due_date_text, late_fee_rate: b.late_fee_rate ? b.late_fee_rate + "%" : "",
     land_address: b.land_address, road_address: b.road_address, main_use: b.main_use, structure: b.structure,
@@ -269,7 +272,7 @@ function BuildingMembersSection({ buildingId, members, onChanged }) {
   );
 }
 
-export default function BuildingsManager({ initialBuildings, initialExpandedId, initialMembers = [], initialSettings = [] }) {
+export default function BuildingsManager({ initialBuildings, initialExpandedId, initialMembers = [], initialSettings = [], staff = [] }) {
   const supabase = createClient();
   const router = useRouter();
   const [name, setName] = useState("");
@@ -285,6 +288,12 @@ export default function BuildingsManager({ initialBuildings, initialExpandedId, 
     });
     return map;
   }, [initialMembers]);
+
+  const staffById = useMemo(() => {
+    const map = {};
+    staff.forEach((s) => { map[s.id] = s; });
+    return map;
+  }, [staff]);
 
   async function addBuilding() {
     if (!name.trim()) return;
@@ -324,7 +333,7 @@ export default function BuildingsManager({ initialBuildings, initialExpandedId, 
       <div className="flex flex-col gap-3">
         {initialBuildings.length === 0 && <div className="card text-sm text-inkDim">등록된 건물이 없습니다. 위에서 추가해주세요.</div>}
         {initialBuildings.map((b) => {
-          const fields = buildingSummaryFields(b);
+          const fields = buildingSummaryFields(b, staffById);
           const isExpanded = expandedId === b.id;
           return (
             <div key={b.id} className="card">
@@ -335,6 +344,9 @@ export default function BuildingsManager({ initialBuildings, initialExpandedId, 
                 <div className="flex items-center gap-2">
                   <span className="text-inkDim text-xs">{isExpanded ? "▾" : "▸"}</span>
                   <div className="font-semibold text-sm">{b.name}</div>
+                  {b.manager_id && staffById[b.manager_id] && (
+                    <span className="tag text-[10px]">담당 {staffById[b.manager_id].display_name}</span>
+                  )}
                 </div>
                 <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => setEditing(b)} className="text-accent text-xs font-medium">건물 정보 수정</button>
@@ -373,6 +385,7 @@ export default function BuildingsManager({ initialBuildings, initialExpandedId, 
       {editing && (
         <BuildingEditModal
           building={editing}
+          staff={staff}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); router.refresh(); }}
         />
@@ -381,7 +394,7 @@ export default function BuildingsManager({ initialBuildings, initialExpandedId, 
   );
 }
 
-function BuildingEditModal({ building, onClose, onSaved }) {
+function BuildingEditModal({ building, staff = [], onClose, onSaved }) {
   const supabase = createClient();
   const [form, setForm] = useState(emptyForm(building));
   const [bankIsOther, setBankIsOther] = useState(
@@ -406,6 +419,7 @@ function BuildingEditModal({ building, onClose, onSaved }) {
   async function save() {
     setSaving(true);
     const { error } = await supabase.from("buildings").update({
+      manager_id: form.manager_id || null,
       company_name: form.company_name.trim(),
       company_phone: form.company_phone.trim(),
       bank_name: form.bank_name.trim(),
@@ -444,6 +458,12 @@ function BuildingEditModal({ building, onClose, onSaved }) {
       <div className="bg-surface rounded-xl max-w-md w-full p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="font-display font-bold mb-4">{building.name} · 건물 정보</div>
         <div className="flex flex-col gap-3">
+          <label className="text-xs text-inkDim font-medium">담당자
+            <select value={form.manager_id} onChange={(e) => set("manager_id", e.target.value)}>
+              <option value="">미지정</option>
+              {staff.map((s) => <option key={s.id} value={s.id}>{s.display_name} ({s.role})</option>)}
+            </select>
+          </label>
           <label className="text-xs text-inkDim font-medium">위탁관리업체명
             <input value={form.company_name} onChange={(e) => set("company_name", e.target.value)} placeholder="예: 청수빌 위탁관리 지니어스" />
           </label>
