@@ -35,7 +35,7 @@ export default async function NoticesPage({ searchParams }) {
   }
 
   let buildingId;
-  if (role === "고객") {
+  if (role === "고객" || role === "구분소유자") {
     const { data: { user } } = await supabase.auth.getUser();
     const { data: myProfile } = await supabase.from("profiles").select("building_id").eq("id", user.id).single();
     buildingId = myProfile?.building_id || null;
