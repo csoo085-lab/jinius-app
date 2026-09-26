@@ -223,6 +223,16 @@ export default function FeesManager({
     router.refresh();
   }
 
+  async function togglePaid(row) {
+    const newPaid = !row.paid;
+    const { error } = await supabase.from("fee_invoices").update({
+      paid: newPaid,
+      paid_date: newPaid ? new Date().toISOString().slice(0, 10) : null,
+    }).eq("id", row.id);
+    if (error) { alert("수납 상태 변경 실패: " + error.message); return; }
+    router.refresh();
+  }
+
   function findMeterUsage(unitTextValue, utility) {
     const row = meterReadings.find((r) => `${r.dong} ${r.ho}`.trim() === unitTextValue && r.utility === utility);
     if (!row) return null;
@@ -337,7 +347,21 @@ export default function FeesManager({
       )}
 
       <div className="card print:hidden">
-        <div className="font-semibold text-sm mb-3">{month} 호실별 관리비 ({invoices.length})</div>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div className="font-semibold text-sm">{month} 호실별 관리비 ({invoices.length})</div>
+          {invoices.length > 0 && (() => {
+            const paidCount = invoices.filter((r) => r.paid).length;
+            const paidTotal = invoices.filter((r) => r.paid).reduce((s, r) => s + (r.total || 0), 0);
+            const grandTotal = invoices.reduce((s, r) => s + (r.total || 0), 0);
+            const rate = invoices.length ? Math.round((paidCount / invoices.length) * 100) : 0;
+            return (
+              <div className="text-xs text-inkDim">
+                수납 <span className="font-semibold text-ink">{paidCount}/{invoices.length}세대 ({rate}%)</span>
+                {" · "}수납액 <span className="font-semibold text-ink">{won(paidTotal)}</span> / 총 {won(grandTotal)}
+              </div>
+            );
+          })()}
+        </div>
         {invoices.length === 0 ? (
           <p className="text-sm text-inkDim">등록된 데이터가 없습니다. 위에서 항목별 총액을 입력하고 '전체 세대 자동 생성'을 눌러주세요.</p>
         ) : (
@@ -348,6 +372,7 @@ export default function FeesManager({
                   <th className="py-2">호실</th>
                   {feeItems.map((it) => <th key={it.id} className="py-2">{it.name}</th>)}
                   <th className="py-2">미납금</th><th className="py-2">연체료</th><th className="py-2">합계</th>
+                  <th className="py-2">수납</th>
                   <th className="py-2"></th>
                 </tr>
               </thead>
@@ -359,6 +384,20 @@ export default function FeesManager({
                     <td className="py-2 font-mono text-inkDim">{won(row.prev_unpaid)}</td>
                     <td className="py-2 font-mono text-inkDim">{won(row.late_fee)}</td>
                     <td className="py-2 font-mono font-semibold">{won(row.total)}</td>
+                    <td className="py-2">
+                      {readOnly ? (
+                        <span className={`tag ${row.paid ? "bg-ok/10 text-ok" : "bg-surface2 text-inkDim"}`}>
+                          {row.paid ? "수납완료" : "미수납"}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => togglePaid(row)}
+                          className={`tag ${row.paid ? "bg-ok/10 text-ok" : "bg-surface2 text-inkDim"}`}
+                        >
+                          {row.paid ? `수납완료${row.paid_date ? " " + row.paid_date : ""}` : "미수납"}
+                        </button>
+                      )}
+                    </td>
                     <td className="py-2 text-right">
                       <button onClick={() => { setPreviewRow(row); setPreviewMode("receipt"); }} className="text-accent text-xs font-medium mr-3">미리보기</button>
                       {!readOnly && (
