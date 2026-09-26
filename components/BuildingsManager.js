@@ -388,19 +388,65 @@ export default function BuildingsManager({ initialBuildings, initialExpandedId, 
           staff={staff}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); router.refresh(); }}
+          onGenerated={() => router.refresh()}
         />
       )}
     </div>
   );
 }
 
-function BuildingEditModal({ building, staff = [], onClose, onSaved }) {
+function BuildingEditModal({ building, staff = [], onClose, onSaved, onGenerated }) {
   const supabase = createClient();
   const [form, setForm] = useState(emptyForm(building));
   const [bankIsOther, setBankIsOther] = useState(
     !!form.bank_name && !BANK_LIST.includes(form.bank_name)
   );
   const [saving, setSaving] = useState(false);
+  const [ugFloorStart, setUgFloorStart] = useState("");
+  const [ugFloorEnd, setUgFloorEnd] = useState("");
+  const [ugPerFloor, setUgPerFloor] = useState("");
+  const [ugAreas, setUgAreas] = useState("");
+  const [ugBusy, setUgBusy] = useState(false);
+
+  async function generateUnits() {
+    const start = parseInt(ugFloorStart, 10);
+    const end = parseInt(ugFloorEnd, 10);
+    const perFloor = parseInt(ugPerFloor, 10);
+    if (!start || !end || end < start) { alert("시작층/끝층을 올바르게 입력해주세요."); return; }
+    if (!perFloor || perFloor < 1) { alert("층당 호실 수를 입력해주세요."); return; }
+
+    const areaList = ugAreas.split(",").map((s) => s.trim()).filter((s) => s !== "").map((s) => Number(s));
+    if (areaList.length > 0 && areaList.length !== perFloor) {
+      if (!confirm(`입력한 면적 개수(${areaList.length}개)가 층당 호실 수(${perFloor}개)와 다릅니다. 부족한 호실은 면적 없이 생성됩니다. 계속할까요?`)) return;
+    }
+    const totalPlanned = (end - start + 1) * perFloor;
+    if (!confirm(`${start}층~${end}층, 층당 ${perFloor}호실 → 총 ${totalPlanned}개 호실을 생성합니다.\n(이미 등록된 호실은 건너뜁니다) 계속할까요?`)) return;
+
+    setUgBusy(true);
+    const { data: existing, error: fetchErr } = await supabase.from("units").select("ho").eq("building_id", building.id);
+    if (fetchErr) { setUgBusy(false); alert("기존 호실 조회 실패: " + fetchErr.message); return; }
+    const existingHo = new Set((existing || []).map((u) => u.ho));
+
+    const rows = [];
+    for (let floor = start; floor <= end; floor++) {
+      for (let i = 1; i <= perFloor; i++) {
+        const ho = `${floor * 100 + i}호`;
+        if (existingHo.has(ho)) continue;
+        rows.push({ building_id: building.id, dong: "", ho, area: areaList[i - 1] || null });
+      }
+    }
+    if (rows.length === 0) {
+      setUgBusy(false);
+      alert("생성할 호실이 없습니다. (해당 범위의 호실이 이미 모두 등록되어 있습니다)");
+      return;
+    }
+    const { error } = await supabase.from("units").insert(rows);
+    setUgBusy(false);
+    if (error) { alert("생성 실패: " + error.message); return; }
+    alert(`${rows.length}개 호실이 생성되었습니다. (건너뜀 ${totalPlanned - rows.length}개)\n'세대(호실) 설정' 메뉴에서 확인하세요.`);
+    setUgFloorStart(""); setUgFloorEnd(""); setUgPerFloor(""); setUgAreas("");
+    onGenerated?.();
+  }
 
   function set(key, value) { setForm((f) => ({ ...f, [key]: value })); }
   function addFloorRow() {
@@ -611,6 +657,29 @@ function BuildingEditModal({ building, staff = [], onClose, onSaved }) {
               </div>
             )}
           </div>
+
+          <div className="text-xs font-semibold text-ink mt-2">호실 자동 생성 → 세대(호실) 설정 반영</div>
+          <div className="text-xs text-inkDim -mt-1 mb-1">
+            시작층~끝층, 층당 호실 수, 호실별 면적을 입력하면 &quot;301호&quot;(3층 1번째) 형식으로 자동 생성되어 각 건물의 &quot;세대(호실) 설정&quot; 화면에 그대로 반영됩니다. 층 구성은 범위 내 모든 층에 동일하게 적용되며, 이미 등록된 호실은 건너뜁니다.
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs text-inkDim font-medium">시작층
+              <input type="number" value={ugFloorStart} onChange={(e) => setUgFloorStart(e.target.value)} placeholder="예: 3" />
+            </label>
+            <label className="text-xs text-inkDim font-medium">끝층
+              <input type="number" value={ugFloorEnd} onChange={(e) => setUgFloorEnd(e.target.value)} placeholder="예: 15" />
+            </label>
+          </div>
+          <label className="text-xs text-inkDim font-medium">층당 호실 수
+            <input type="number" value={ugPerFloor} onChange={(e) => setUgPerFloor(e.target.value)} placeholder="예: 4" />
+          </label>
+          <label className="text-xs text-inkDim font-medium">각 호실 면적(㎡) — 1번째 호실부터 순서대로, 콤마로 구분
+            <input value={ugAreas} onChange={(e) => setUgAreas(e.target.value)} placeholder="예: 59.98,84.92,59.98,114.51" />
+          </label>
+          <button type="button" className="btn-ghost self-start text-xs" disabled={ugBusy} onClick={generateUnits}>
+            {ugBusy ? "생성 중…" : "호실 자동 생성"}
+          </button>
+
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-inkDim font-medium">호수/가구수/세대수
               <input value={form.unit_summary} onChange={(e) => set("unit_summary", e.target.value)} placeholder="예: 28호/0가구/28세대" />
