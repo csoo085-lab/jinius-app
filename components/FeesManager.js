@@ -32,7 +32,7 @@ export default function FeesManager({
 }) {
   const supabase = createClient();
   const router = useRouter();
-  const readOnly = role === "고객";
+  const readOnly = role === "고객" || role === "구분소유자";
   const [newItem, setNewItem] = useState("");
   const [newAllocation, setNewAllocation] = useState("면적비례");
   const [unitText, setUnitText] = useState("");
