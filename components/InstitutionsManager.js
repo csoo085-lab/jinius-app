@@ -24,6 +24,29 @@ function PhoneLink({ number }) {
   );
 }
 
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((d - today) / 86400000);
+}
+
+function DdayBadge({ dateStr }) {
+  if (!dateStr) return <span className="text-inkDim">-</span>;
+  const days = daysUntil(dateStr);
+  const overdue = days < 0;
+  const soon = days <= 30;
+  const cls = overdue ? "bg-danger/10 text-danger" : soon ? "bg-warn/10 text-warn" : "bg-surface2 text-inkDim";
+  const label = overdue ? `기한초과 D+${Math.abs(days)}` : `D-${days}`;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-mono text-[11px] text-inkDim">{dateStr}</span>
+      <span className={`tag ${cls}`}>{label}</span>
+    </div>
+  );
+}
+
 export default function InstitutionsManager({ initialInstitutions, buildings, initialLinks }) {
   const supabase = createClient();
   const router = useRouter();
@@ -33,7 +56,10 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
   const [linkInstitutionId, setLinkInstitutionId] = useState("");
   const [customerNumber, setCustomerNumber] = useState("");
   const [contractInfo, setContractInfo] = useState("");
+  const [nextInspectionDate, setNextInspectionDate] = useState("");
+  const [inspectionCycleMonths, setInspectionCycleMonths] = useState(12);
   const [docsLink, setDocsLink] = useState(null);
+  const [inspectionLink, setInspectionLink] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterOrgType, setFilterOrgType] = useState("전체");
 
@@ -52,10 +78,12 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
       institution_id: linkInstitutionId,
       customer_number: customerNumber.trim(),
       contract_info: contractInfo.trim(),
+      next_inspection_date: nextInspectionDate || null,
+      inspection_cycle_months: Number(inspectionCycleMonths) || 12,
     });
     setAddingLink(false);
     if (error) { alert("연결 실패: " + error.message); return; }
-    setLinkInstitutionId(""); setCustomerNumber(""); setContractInfo("");
+    setLinkInstitutionId(""); setCustomerNumber(""); setContractInfo(""); setNextInspectionDate(""); setInspectionCycleMonths(12);
     router.refresh();
   }
 
@@ -152,14 +180,24 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
 
         {buildingId && (
           <>
-            <div className="grid grid-cols-[1fr_1fr_1fr_80px] gap-2 items-center mb-4">
-              <select value={linkInstitutionId} onChange={(e) => setLinkInstitutionId(e.target.value)}>
-                <option value="">기관·업체 선택</option>
-                {availableInstitutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-              </select>
-              <input placeholder="고객번호" value={customerNumber} onChange={(e) => setCustomerNumber(e.target.value)} />
-              <input placeholder="계약정보" value={contractInfo} onChange={(e) => setContractInfo(e.target.value)} />
-              <button className="btn text-xs" disabled={addingLink} onClick={addLink}>연결</button>
+            <div className="flex flex-col gap-2 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <select value={linkInstitutionId} onChange={(e) => setLinkInstitutionId(e.target.value)}>
+                  <option value="">기관·업체 선택</option>
+                  {availableInstitutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                </select>
+                <input placeholder="고객번호" value={customerNumber} onChange={(e) => setCustomerNumber(e.target.value)} />
+                <input placeholder="계약정보" value={contractInfo} onChange={(e) => setContractInfo(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_80px] gap-2 items-center">
+                <label className="text-xs text-inkDim font-medium">다음 점검일
+                  <input type="date" value={nextInspectionDate} onChange={(e) => setNextInspectionDate(e.target.value)} />
+                </label>
+                <label className="text-xs text-inkDim font-medium">점검 주기(개월)
+                  <input type="number" min="1" value={inspectionCycleMonths} onChange={(e) => setInspectionCycleMonths(e.target.value)} />
+                </label>
+                <button className="btn text-xs self-end" disabled={addingLink} onClick={addLink}>연결</button>
+              </div>
             </div>
 
             {linksForBuilding.length === 0 ? (
@@ -173,6 +211,7 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
                     <th className="py-2">담당자 전화</th>
                     <th className="py-2">고객번호</th>
                     <th className="py-2">계약정보</th>
+                    <th className="py-2">다음 점검일</th>
                     <th className="py-2"></th>
                   </tr>
                 </thead>
@@ -187,7 +226,9 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
                       <td className="py-2 font-mono text-xs"><PhoneLink number={l.institutions?.manager_phone} /></td>
                       <td className="py-2 font-mono text-xs">{l.customer_number || "-"}</td>
                       <td className="py-2 text-inkDim">{l.contract_info || "-"}</td>
-                      <td className="py-2 text-right">
+                      <td className="py-2"><DdayBadge dateStr={l.next_inspection_date} /></td>
+                      <td className="py-2 text-right whitespace-nowrap">
+                        <button className="text-accent text-xs mr-2" onClick={() => setInspectionLink(l)}>점검일</button>
                         <button className="text-accent text-xs mr-2" onClick={() => setDocsLink(l)}>서류</button>
                         <button className="text-danger text-xs" onClick={() => removeLink(l.id)}>삭제</button>
                       </td>
@@ -211,6 +252,60 @@ export default function InstitutionsManager({ initialInstitutions, buildings, in
       {docsLink && (
         <DocsModal link={docsLink} onClose={() => setDocsLink(null)} onChanged={() => router.refresh()} />
       )}
+
+      {inspectionLink && (
+        <InspectionModal link={inspectionLink} onClose={() => setInspectionLink(null)} onSaved={() => { setInspectionLink(null); router.refresh(); }} />
+      )}
+    </div>
+  );
+}
+
+function InspectionModal({ link, onClose, onSaved }) {
+  const supabase = createClient();
+  const [nextDate, setNextDate] = useState(link.next_inspection_date || "");
+  const [cycle, setCycle] = useState(link.inspection_cycle_months || 12);
+  const [saving, setSaving] = useState(false);
+
+  async function save(overrideDate) {
+    setSaving(true);
+    const { error } = await supabase.from("building_institutions").update({
+      next_inspection_date: overrideDate || (nextDate || null),
+      inspection_cycle_months: Number(cycle) || 12,
+    }).eq("id", link.id);
+    setSaving(false);
+    if (error) { alert("저장 실패: " + error.message); return; }
+    onSaved();
+  }
+
+  function markCompletedToday() {
+    const cycleMonths = Number(cycle) || 12;
+    const d = new Date();
+    d.setMonth(d.getMonth() + cycleMonths);
+    const newDate = d.toISOString().slice(0, 10);
+    setNextDate(newDate);
+    save(newDate);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-surface rounded-xl max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="font-display font-bold mb-4">{link.institutions?.name} · 점검 일정</div>
+        <div className="flex flex-col gap-3">
+          <label className="text-xs text-inkDim font-medium">다음 점검일
+            <input type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} />
+          </label>
+          <label className="text-xs text-inkDim font-medium">점검 주기(개월)
+            <input type="number" min="1" value={cycle} onChange={(e) => setCycle(e.target.value)} />
+          </label>
+        </div>
+        <div className="flex justify-between gap-2 mt-5">
+          <button className="btn-ghost text-xs" disabled={saving} onClick={markCompletedToday}>오늘 점검완료 (주기만큼 연장)</button>
+        </div>
+        <div className="flex justify-end gap-2 mt-3">
+          <button className="btn-ghost" onClick={onClose}>취소</button>
+          <button className="btn" disabled={saving} onClick={() => save()}>{saving ? "저장 중…" : "저장"}</button>
+        </div>
+      </div>
     </div>
   );
 }
