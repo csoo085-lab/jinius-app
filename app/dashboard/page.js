@@ -23,6 +23,10 @@ function DdayBadge({ days }) {
   return <span className={`tag ${cls}`}>{label}</span>;
 }
 
+function thisMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
 export default async function DashboardPage() {
   const supabase = createClient();
   const { role } = await getCurrentUser();
@@ -43,15 +47,46 @@ export default async function DashboardPage() {
   ];
 
   let inspections = [];
+  let feeSummary = null;
   if (canManage) {
-    const { data } = await supabase
+    const { data: inspData } = await supabase
       .from("building_institutions")
       .select("id, next_inspection_date, buildings(name), institutions(name, category)")
       .not("next_inspection_date", "is", null)
       .order("next_inspection_date", { ascending: true })
       .limit(30);
-    inspections = (data || []).filter((r) => daysUntil(r.next_inspection_date) <= 30);
+    inspections = (inspData || []).filter((r) => daysUntil(r.next_inspection_date) <= 30);
+
+    const month = thisMonth();
+    const { data: invoiceRows } = await supabase
+      .from("fee_invoices")
+      .select("building_id, total, paid, buildings(name)")
+      .eq("month", month);
+
+    if (invoiceRows && invoiceRows.length > 0) {
+      const byBuilding = {};
+      invoiceRows.forEach((r) => {
+        const key = r.building_id;
+        if (!byBuilding[key]) {
+          byBuilding[key] = { name: r.buildings?.name || "-", count: 0, paidCount: 0, total: 0, paidTotal: 0 };
+        }
+        byBuilding[key].count += 1;
+        byBuilding[key].total += r.total || 0;
+        if (r.paid) {
+          byBuilding[key].paidCount += 1;
+          byBuilding[key].paidTotal += r.total || 0;
+        }
+      });
+      const rows = Object.values(byBuilding).sort((a, b) => a.name.localeCompare(b.name, "ko"));
+      const grandTotal = rows.reduce((s, r) => s + r.total, 0);
+      const grandPaid = rows.reduce((s, r) => s + r.paidTotal, 0);
+      const grandCount = rows.reduce((s, r) => s + r.count, 0);
+      const grandPaidCount = rows.reduce((s, r) => s + r.paidCount, 0);
+      feeSummary = { month, rows, grandTotal, grandPaid, grandCount, grandPaidCount };
+    }
   }
+
+  const won = (n) => (n || 0).toLocaleString() + "원";
 
   return (
     <div>
@@ -67,7 +102,7 @@ export default async function DashboardPage() {
       </div>
 
       {canManage && (
-        <div className="card">
+        <div className="card mb-4">
           <div className="font-semibold text-sm mb-3">법정 점검 임박·기한초과 (30일 이내)</div>
           {inspections.length === 0 ? (
             <div className="text-sm text-inkDim">임박하거나 기한이 지난 점검이 없습니다.</div>
@@ -90,6 +125,49 @@ export default async function DashboardPage() {
                     <td className="py-2 text-inkDim">{r.institutions?.category || "-"}</td>
                     <td className="py-2 font-mono text-xs">{r.next_inspection_date}</td>
                     <td className="py-2 text-right"><DdayBadge days={daysUntil(r.next_inspection_date)} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {canManage && (
+        <div className="card">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div className="font-semibold text-sm">{feeSummary?.month || thisMonth()} 관리비 수납 현황 (전체 건물)</div>
+            {feeSummary && (
+              <div className="text-xs text-inkDim">
+                수납 <span className="font-semibold text-ink">
+                  {feeSummary.grandPaidCount}/{feeSummary.grandCount}세대
+                  ({feeSummary.grandCount ? Math.round((feeSummary.grandPaidCount / feeSummary.grandCount) * 100) : 0}%)
+                </span>
+                {" · "}수납액 <span className="font-semibold text-ink">{won(feeSummary.grandPaid)}</span> / 총 {won(feeSummary.grandTotal)}
+              </div>
+            )}
+          </div>
+          {!feeSummary ? (
+            <div className="text-sm text-inkDim">이번 달 생성된 관리비 고지서가 없습니다.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-inkDim border-b border-borderBright">
+                  <th className="py-2">건물</th>
+                  <th className="py-2">수납 세대</th>
+                  <th className="py-2">수납률</th>
+                  <th className="py-2">수납액</th>
+                  <th className="py-2">총 부과액</th>
+                </tr>
+              </thead>
+              <tbody>
+                {feeSummary.rows.map((r) => (
+                  <tr key={r.name} className="border-b border-border">
+                    <td className="py-2">{r.name}</td>
+                    <td className="py-2 font-mono text-xs">{r.paidCount}/{r.count}</td>
+                    <td className="py-2 font-mono text-xs">{r.count ? Math.round((r.paidCount / r.count) * 100) : 0}%</td>
+                    <td className="py-2 font-mono">{won(r.paidTotal)}</td>
+                    <td className="py-2 font-mono text-inkDim">{won(r.total)}</td>
                   </tr>
                 ))}
               </tbody>
