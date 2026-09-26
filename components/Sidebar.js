@@ -116,6 +116,7 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
                   <Link
                     key={item.href}
                     href={item.href}
+                    onClick={() => setMobileOpen(false)}
                     className={
                       "px-3 py-2 rounded-lg text-sm font-medium " +
                       (pathname === item.href ? "bg-surface2 text-ink" : "text-inkDim hover:bg-surface2")
@@ -153,7 +154,7 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
                             <Link
                               key={item.hrefBase}
                               href={href}
-                              onClick={() => setManualExpanded(b.id)}
+                              onClick={() => { setManualExpanded(b.id); setMobileOpen(false); }}
                               className={
                                 "px-3 py-1.5 rounded-lg text-xs font-medium " +
                                 (active ? "bg-surface2 text-ink" : "text-inkDim hover:bg-surface2")
