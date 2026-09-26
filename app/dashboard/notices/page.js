@@ -33,11 +33,28 @@ export default async function NoticesPage({ searchParams }) {
       </div>
     );
   }
-  const buildingId = searchParams?.building || buildings[0].id;
+
+  let buildingId;
+  if (role === "고객") {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: myProfile } = await supabase.from("profiles").select("building_id").eq("id", user.id).single();
+    buildingId = myProfile?.building_id || null;
+    if (!buildingId) {
+      return (
+        <div>
+          <h1 className="font-display font-bold text-xl mb-5">공지사항</h1>
+          <div className="card text-sm text-inkDim">배정된 건물 정보가 없습니다. 관리사무소에 문의해주세요.</div>
+        </div>
+      );
+    }
+  } else {
+    buildingId = searchParams?.building || buildings[0].id;
+  }
+
   const months = last12Months(thisMonth());
 
   const [{ data: notices }, { data: flyers }, { data: meterRows }, { data: feeItems }] = await Promise.all([
-    supabase.from("notices").select("*").eq("building_id", buildingId).order("created_at", { ascending: false }),
+    supabase.from("notices").select("*").or(`building_id.eq.${buildingId},building_id.is.null`).order("created_at", { ascending: false }),
     supabase.from("building_flyers").select("*").eq("building_id", buildingId).order("created_at", { ascending: false }),
     supabase.from("meter_readings").select("month, utility, prev_reading, curr_reading").eq("building_id", buildingId).in("month", months),
     supabase.from("fee_items").select("id, allocation").eq("building_id", buildingId).in("allocation", ["전기사용량비례", "수도사용량비례"]),
