@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
-const ROLES = ["관리자", "담당자", "고객"];
+const ROLES = ["관리자", "담당자", "구분소유자", "고객"];
 const MEMBER_TYPES = ["임차인", "임대인"];
 
 const BANK_LIST = [
