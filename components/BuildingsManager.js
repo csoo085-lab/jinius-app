@@ -461,7 +461,6 @@ function BuildingEditModal({ building, staff = [], onClose, onSaved, onGenerated
     setUgBusy(false);
     if (error) { alert("생성 실패: " + error.message); return; }
     alert(`${rows.length}개 호실이 생성되었습니다.${toReplace.length > 0 ? ` (기존 ${toReplace.length}개는 삭제 후 교체됨)` : ""}\n'세대(호실) 설정' 메뉴에서 확인하세요.`);
-    setUgFloorStart(""); setUgFloorEnd(""); setUgPerFloor(""); setUgAreas("");
     onGenerated?.();
   }
 
