@@ -141,6 +141,19 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
           <div>경과시간: {formatElapsed(now - loginTime)}</div>
         </div>
       )}
+      <a
+        href="https://blog.naver.com/jinius_estate"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 text-sm text-inkDim hover:text-accent mt-3 pt-3 border-t border-border"
+      >
+        <span className="w-5 h-5 rounded shrink-0 flex items-center justify-center" style={{ backgroundColor: "#03C75A" }}>
+          <svg viewBox="0 0 24 24" className="w-3 h-3" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16.273 12.845 7.376 0H0v24h7.726V11.156L16.624 24H24V0h-7.727v12.845Z" />
+          </svg>
+        </span>
+        지니어스 블로그
+      </a>
       <button onClick={handleLogout} className="text-sm text-inkDim hover:text-danger text-left mt-2">
         로그아웃
       </button>
