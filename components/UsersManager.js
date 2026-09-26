@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
-const ROLES = ["관리자", "담당자", "고객"];
+const ROLES = ["관리자", "담당자", "구분소유자", "고객"];
 
 export default function UsersManager({ profiles, myId, buildings = [] }) {
   const supabase = createClient();
@@ -83,7 +83,7 @@ export default function UsersManager({ profiles, myId, buildings = [] }) {
 
       <div className="card">
         <p className="text-xs text-inkDim mb-4">
-          <strong>관리자</strong>: 전체 기능 · <strong>담당자</strong>: 시설점검·민원·관리비·검침 등 실무 · <strong>고객</strong>: 관리비 조회·민원 접수 중심의 열람 위주 화면
+          <strong>관리자</strong>: 전체 기능 · <strong>담당자</strong>: 시설점검·민원·관리비·검침 등 실무 · <strong>구분소유자</strong>: 일반 열람 기능 + 회의록·통장내역 열람 · <strong>고객</strong>: 관리비 조회·민원 접수 중심의 열람 위주 화면
         </p>
         <table className="w-full text-sm">
           <thead>
