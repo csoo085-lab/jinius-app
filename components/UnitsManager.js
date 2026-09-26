@@ -1,15 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
 const OCCUPANCY_OPTIONS = ["자가", "전세", "월세", "공실"];
 
+function sortUnits(units) {
+  return [...units].sort((a, b) => {
+    const dongCmp = (a.dong || "").localeCompare(b.dong || "", "ko", { numeric: true });
+    if (dongCmp !== 0) return dongCmp;
+    const numA = parseInt((a.ho || "").replace(/[^0-9]/g, ""), 10) || 0;
+    const numB = parseInt((b.ho || "").replace(/[^0-9]/g, ""), 10) || 0;
+    return numA - numB;
+  });
+}
+
 export default function UnitsManager({ buildings, initialBuildingId, units }) {
   const supabase = createClient();
   const router = useRouter();
   const [buildingId, setBuildingId] = useState(initialBuildingId || (buildings[0]?.id ?? ""));
+  const sortedUnits = useMemo(() => sortUnits(units), [units]);
   const [dong, setDong] = useState("");
   const [count, setCount] = useState("");
   const [start, setStart] = useState("");
@@ -81,7 +92,7 @@ export default function UnitsManager({ buildings, initialBuildingId, units }) {
                 </tr>
               </thead>
               <tbody>
-                {units.map((u) => (
+                {sortedUnits.map((u) => (
                   <tr key={u.id} className="border-b border-border">
                     <td className="py-2"><input defaultValue={u.dong} className="w-20" onBlur={(e) => updateUnit(u.id, { dong: e.target.value })} /></td>
                     <td className="py-2"><input defaultValue={u.ho} className="w-20" onBlur={(e) => updateUnit(u.id, { ho: e.target.value })} /></td>
