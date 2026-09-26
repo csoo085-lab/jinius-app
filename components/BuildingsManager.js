@@ -57,6 +57,13 @@ function emptyForm(b) {
     periodic_inspection_valid_until: b?.periodic_inspection_valid_until || "",
     floor_details: Array.isArray(b?.floor_details) ? b.floor_details : [],
     manager_id: b?.manager_id || "",
+    unit_gen_settings: {
+      dong: b?.unit_gen_settings?.dong || "",
+      floorStart: b?.unit_gen_settings?.floorStart || "",
+      floorEnd: b?.unit_gen_settings?.floorEnd || "",
+      perFloor: b?.unit_gen_settings?.perFloor || "",
+      areas: b?.unit_gen_settings?.areas || "",
+    },
   };
 }
 
@@ -402,11 +409,11 @@ function BuildingEditModal({ building, staff = [], onClose, onSaved, onGenerated
     !!form.bank_name && !BANK_LIST.includes(form.bank_name)
   );
   const [saving, setSaving] = useState(false);
-  const [ugDong, setUgDong] = useState("");
-  const [ugFloorStart, setUgFloorStart] = useState("");
-  const [ugFloorEnd, setUgFloorEnd] = useState("");
-  const [ugPerFloor, setUgPerFloor] = useState("");
-  const [ugAreas, setUgAreas] = useState("");
+  const [ugDong, setUgDong] = useState(form.unit_gen_settings.dong);
+  const [ugFloorStart, setUgFloorStart] = useState(form.unit_gen_settings.floorStart);
+  const [ugFloorEnd, setUgFloorEnd] = useState(form.unit_gen_settings.floorEnd);
+  const [ugPerFloor, setUgPerFloor] = useState(form.unit_gen_settings.perFloor);
+  const [ugAreas, setUgAreas] = useState(form.unit_gen_settings.areas);
   const [ugBusy, setUgBusy] = useState(false);
 
   async function generateUnits() {
@@ -452,8 +459,14 @@ function BuildingEditModal({ building, staff = [], onClose, onSaved, onGenerated
       }
     }
     const { error } = await supabase.from("units").insert(rows);
+    if (error) { setUgBusy(false); alert("생성 실패: " + error.message); return; }
+
+    // 다음에 다시 열었을 때도 방금 입력한 값이 남아있도록 건물 정보에 저장해둡니다.
+    const settingsToSave = { dong: ugDong, floorStart: ugFloorStart, floorEnd: ugFloorEnd, perFloor: ugPerFloor, areas: ugAreas };
+    await supabase.from("buildings").update({ unit_gen_settings: settingsToSave }).eq("id", building.id);
+    setForm((f) => ({ ...f, unit_gen_settings: settingsToSave }));
+
     setUgBusy(false);
-    if (error) { alert("생성 실패: " + error.message); return; }
     alert(`${rows.length}개 호실이 생성되었습니다.${toReplace.length > 0 ? ` (기존 ${toReplace.length}개는 삭제 후 교체됨)` : ""}\n'세대(호실) 설정' 메뉴에서 확인하세요.`);
     onGenerated?.();
   }
