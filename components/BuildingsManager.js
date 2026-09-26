@@ -424,22 +424,16 @@ function BuildingEditModal({ building, staff = [], onClose, onSaved, onGenerated
     const dongVal = ugDong.trim();
 
     setUgBusy(true);
-    const { data: existing, error: fetchErr } = await supabase.from("units").select("id, dong, ho").eq("building_id", building.id);
+    const { data: existing, error: fetchErr } = await supabase.from("units").select("id").eq("building_id", building.id);
     if (fetchErr) { setUgBusy(false); alert("기존 호실 조회 실패: " + fetchErr.message); return; }
 
-    // 지정한 동 + 층 범위(예: 101동 3층~15층)에 속하는 기존 호실은 모두 교체 대상입니다.
-    const toReplace = (existing || []).filter((u) => {
-      if ((u.dong || "").trim() !== dongVal) return false;
-      const num = parseInt((u.ho || "").replace(/[^0-9]/g, ""), 10);
-      if (!num) return false;
-      const floor = Math.floor(num / 100);
-      return floor >= start && floor <= end;
-    });
+    // 이 건물에 등록된 세대(호실)는 전부 교체 대상입니다.
+    const toReplace = existing || [];
 
     const totalPlanned = (end - start + 1) * perFloor;
     const dongLabel = dongVal ? `${dongVal} ` : "";
     const warnLine = toReplace.length > 0
-      ? `\n\n※ ${dongLabel}${start}층~${end}층 범위에 이미 등록된 호실 ${toReplace.length}개(입주 정보 등 포함)는 삭제되고 새로 생성됩니다.`
+      ? `\n\n※ 이 건물에 이미 등록된 세대(호실) ${toReplace.length}개(입주 정보 등 포함)가 모두 삭제되고, 새로 생성하는 ${totalPlanned}개로 교체됩니다.`
       : "";
     if (!confirm(`${dongLabel}${start}층~${end}층, 층당 ${perFloor}호실 → 총 ${totalPlanned}개 호실을 생성합니다.${warnLine}\n계속할까요?`)) {
       setUgBusy(false);
@@ -676,7 +670,7 @@ function BuildingEditModal({ building, staff = [], onClose, onSaved, onGenerated
 
           <div className="text-xs font-semibold text-ink mt-2">호실 자동 생성 → 세대(호실) 설정 반영</div>
           <div className="text-xs text-inkDim -mt-1 mb-1">
-            동, 시작층~끝층, 층당 호실 수, 호실별 면적을 입력하면 &quot;301호&quot;(3층 1번째) 형식으로 자동 생성되어 각 건물의 &quot;세대(호실) 설정&quot; 화면에 그대로 반영됩니다. 층 구성은 범위 내 모든 층에 동일하게 적용되며, 같은 동·층 범위를 다시 생성하면 해당 범위의 기존 호실(입주 정보 포함)은 삭제되고 새 값으로 교체됩니다.
+            동, 시작층~끝층, 층당 호실 수, 호실별 면적을 입력하면 &quot;301호&quot;(3층 1번째) 형식으로 자동 생성되어 각 건물의 &quot;세대(호실) 설정&quot; 화면에 그대로 반영됩니다. 층 구성은 범위 내 모든 층에 동일하게 적용되며, <strong>생성 버튼을 누르면 이 건물에 기존에 등록된 세대(호실)는 전부 삭제되고 새로 입력한 내용으로 교체</strong>됩니다.
           </div>
           <label className="text-xs text-inkDim font-medium">동 (단일 건물이면 비워두어도 됩니다)
             <input value={ugDong} onChange={(e) => setUgDong(e.target.value)} placeholder="예: 101동" />
