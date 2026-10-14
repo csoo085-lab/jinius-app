@@ -3,11 +3,15 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import FacilityItemFormModal from "@/components/FacilityItemForm";
+import { FACILITY_CATEGORIES } from "@/lib/facilityConstants";
 
 export default function FacilitiesManager({ buildings, buildingId, groups, lastLogByItem, docCountByItem }) {
   const supabase = createClient();
   const router = useRouter();
   const [docsItem, setDocsItem] = useState(null);
+  // null = 닫힘, { item: null, category } = 신규 등록, { item } = 수정
+  const [form, setForm] = useState(null);
   const printRef = useRef(null);
 
   function handlePrint() {
@@ -22,7 +26,18 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
         <h1 className="font-display font-bold text-xl">
           시설현황 <span className="text-inkDim font-normal text-base">· {buildingName}</span>
         </h1>
-        <button className="btn" onClick={handlePrint}>인쇄 / PDF 저장</button>
+        <div className="flex gap-2">
+          <button className="btn-ghost" onClick={handlePrint}>인쇄 / PDF</button>
+          <button className="btn" onClick={() => setForm({ item: null, category: "전기" })}>+ 시설 등록</button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 mb-4 print:hidden">
+        <span className="text-xs text-inkDim self-center mr-1">빠른 등록:</span>
+        {FACILITY_CATEGORIES.map((c) => (
+          <button key={c} className="tag border-borderBright text-ink hover:border-accent hover:text-accent"
+            onClick={() => setForm({ item: null, category: c })}>+ {c}</button>
+        ))}
       </div>
 
       <div ref={printRef}>
@@ -31,11 +46,18 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
           <div className="text-xs text-inkDim">{new Date().toLocaleDateString()}</div>
         </div>
 
-        {groups.length === 0 && <div className="card text-sm text-inkDim">등록된 시설 항목이 없습니다.</div>}
+        {groups.length === 0 && (
+          <div className="card text-sm text-inkDim">
+            등록된 시설이 없습니다. 위의 <strong className="text-ink">+ 시설 등록</strong> 또는 분류 버튼을 눌러 소방·전기·엘리베이터 등 시설 정보를 입력하세요.
+          </div>
+        )}
 
         {groups.map((g) => (
           <div key={g.category} className="card mb-4">
-            <div className="font-semibold text-sm mb-3">{g.category} <span className="text-inkDim font-normal">({g.items.length})</span></div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-semibold text-sm">{g.category} <span className="text-inkDim font-normal">({g.items.length})</span></div>
+              <button className="text-accent text-xs font-medium print:hidden" onClick={() => setForm({ item: null, category: g.category })}>+ 추가</button>
+            </div>
             <div className="flex flex-col gap-2">
               {g.items.map((item) => {
                 const lastLog = lastLogByItem[item.id];
@@ -56,6 +78,7 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
                         ) : (
                           <span className="tag border-borderBright text-inkDim">점검 이력 없음</span>
                         )}
+                        <button className="btn-ghost text-xs" onClick={() => setForm({ item })}>편집</button>
                         <button className="btn-ghost text-xs" onClick={() => setDocsItem(item)}>서류 {docCount ? `(${docCount})` : ""}</button>
                       </div>
                     </div>
@@ -71,6 +94,18 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
           </div>
         ))}
       </div>
+
+      {form && (
+        <FacilityItemFormModal
+          key={form.item?.id || "new-" + form.category}
+          buildingId={buildingId}
+          item={form.item}
+          initialCategory={form.category}
+          onClose={() => setForm(null)}
+          onSaved={() => { setForm(null); router.refresh(); }}
+          onDeleted={() => { setForm(null); router.refresh(); }}
+        />
+      )}
 
       {docsItem && (
         <DocsModal item={docsItem} onClose={() => setDocsItem(null)} onChanged={() => router.refresh()} />
