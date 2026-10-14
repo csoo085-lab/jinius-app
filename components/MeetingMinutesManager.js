@@ -3,14 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { prepareUpload, DOC_MAX_SIDE } from "@/lib/uploadUtils";
 
 function formatDate(d) {
   if (!d) return "";
   return d;
-}
-
-function sanitizeFileName(name) {
-  return name.replace(/[^\w.\-가-힣]/g, "_");
 }
 
 export default function MeetingMinutesManager({ initialMinutes, buildingId, canManage }) {
@@ -25,15 +22,16 @@ export default function MeetingMinutesManager({ initialMinutes, buildingId, canM
   const [uploadingFor, setUploadingFor] = useState(null);
 
   async function uploadFilesFor(minuteId, fileList) {
-    for (const file of fileList) {
-      const path = `meeting/${buildingId}/${minuteId}/${Date.now()}_${sanitizeFileName(file.name)}`;
+    for (const original of Array.from(fileList)) {
+      const { file, storageName, displayName } = await prepareUpload(original, { maxSide: DOC_MAX_SIDE });
+      const path = `meeting/${buildingId}/${minuteId}/${storageName}`;
       const { error: upErr } = await supabase.storage.from("building_docs").upload(path, file);
-      if (upErr) { alert(`"${file.name}" 업로드 실패: ` + upErr.message); continue; }
+      if (upErr) { alert(`"${displayName}" 업로드 실패: ` + upErr.message); continue; }
       const fileType = file.type.startsWith("image/") ? "image" : "document";
       await supabase.from("meeting_minute_files").insert({
         minute_id: minuteId,
         building_id: buildingId,
-        file_name: file.name,
+        file_name: displayName,
         storage_path: path,
         file_type: fileType,
       });
