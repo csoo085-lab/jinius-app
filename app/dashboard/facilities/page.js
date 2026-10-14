@@ -2,8 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabaseServer";
 import { getCurrentUser } from "@/lib/session";
 import FacilitiesManager from "@/components/FacilitiesManager";
-
-const CATEGORIES = ["전기", "소방", "엘리베이터", "기계식주차", "인터넷", "펌프실", "비상발전기실", "급수·배수", "기계·냉난방", "청소", "기타"];
+import { FACILITY_CATEGORIES as CATEGORIES } from "@/lib/facilityConstants";
 
 export default async function FacilitiesPage({ searchParams }) {
   const supabase = createClient();
@@ -32,7 +31,10 @@ export default async function FacilitiesPage({ searchParams }) {
 
   const groups = CATEGORIES.map((cat) => ({
     category: cat,
-    items: (items || []).filter((i) => (i.category || "기타") === cat),
+    items: (items || []).filter((i) => {
+      const c = CATEGORIES.includes(i.category) ? i.category : "기타";
+      return c === cat;
+    }),
   })).filter((g) => g.items.length > 0);
 
   const lastLogByItem = {};
