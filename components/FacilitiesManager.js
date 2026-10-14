@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import FacilityItemFormModal from "@/components/FacilityItemForm";
 import { FACILITY_CATEGORIES } from "@/lib/facilityConstants";
+import { prepareUpload, DOC_MAX_SIDE } from "@/lib/uploadUtils";
 
 export default function FacilitiesManager({ buildings, buildingId, groups, lastLogByItem, docCountByItem }) {
   const supabase = createClient();
@@ -126,13 +127,17 @@ function DocsModal({ item, onClose, onChanged }) {
   if (docs === null) loadDocs();
 
   async function handleUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const selected = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (selected.length === 0) return;
     setUploading(true);
-    const path = `items/${item.id}/${Date.now()}_${file.name}`;
-    const { error: upErr } = await supabase.storage.from("attachments").upload(path, file);
-    if (upErr) { setUploading(false); alert("업로드 실패: " + upErr.message); return; }
-    await supabase.from("documents").insert({ item_id: item.id, file_name: file.name, storage_path: path, size_bytes: file.size });
+    for (const original of selected) {
+      const { file, storageName, displayName, size } = await prepareUpload(original, { maxSide: DOC_MAX_SIDE });
+      const path = `items/${item.id}/${storageName}`;
+      const { error: upErr } = await supabase.storage.from("attachments").upload(path, file);
+      if (upErr) { alert(`"${displayName}" 업로드 실패: ` + upErr.message); continue; }
+      await supabase.from("documents").insert({ item_id: item.id, file_name: displayName, storage_path: path, size_bytes: size });
+    }
     setUploading(false);
     await loadDocs();
     onChanged();
@@ -157,8 +162,8 @@ function DocsModal({ item, onClose, onChanged }) {
       <div className="bg-surface rounded-xl max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
         <div className="font-display font-bold mb-4">{item.name} · 첨부 서류</div>
         <label className="btn-ghost inline-flex cursor-pointer mb-4">
-          업로드
-          <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
+          {uploading ? "올리는 중…" : "업로드 (여러 개 선택 가능)"}
+          <input type="file" multiple className="hidden" onChange={handleUpload} disabled={uploading} />
         </label>
         {docs === null ? (
           <p className="text-sm text-inkDim">불러오는 중…</p>
