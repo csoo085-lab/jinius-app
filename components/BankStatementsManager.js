@@ -3,10 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
-
-function sanitizeFileName(name) {
-  return name.replace(/[^\w.\-가-힣]/g, "_");
-}
+import { prepareUpload, DOC_MAX_SIDE } from "@/lib/uploadUtils";
 
 function periodLabel(s) {
   if (!s.period_start && !s.period_end) return "-";
@@ -30,8 +27,9 @@ export default function BankStatementsManager({ initialStatements, buildingId, c
     if (!file) { alert("업로드할 파일을 선택해주세요."); return; }
     if (!periodStart || !periodEnd) { alert("기간(시작일, 종료일)을 입력해주세요."); return; }
     setSaving(true);
-    const path = `bankstatement/${buildingId}/${Date.now()}_${sanitizeFileName(file.name)}`;
-    const { error: upErr } = await supabase.storage.from("building_docs").upload(path, file);
+    const upload = await prepareUpload(file, { maxSide: DOC_MAX_SIDE });
+    const path = `bankstatement/${buildingId}/${upload.storageName}`;
+    const { error: upErr } = await supabase.storage.from("building_docs").upload(path, upload.file);
     if (upErr) { setSaving(false); alert("업로드 실패: " + upErr.message); return; }
 
     const { error } = await supabase.from("bank_statements").insert({
