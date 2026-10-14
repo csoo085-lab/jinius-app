@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { FACILITY_CATEGORIES, FACILITY_CYCLES, SPEC_TEMPLATES } from "@/lib/facilityConstants";
+import { parseElevatorText } from "@/lib/elevatorPaste";
 
 function templateSpecs(category) {
   return (SPEC_TEMPLATES[category] || []).map((k) => ({ key: k, value: "" }));
@@ -29,6 +30,26 @@ export default function FacilityItemFormModal({ buildingId, item, initialCategor
   const [cycle, setCycle] = useState(item?.cycle || "월간");
   const [specs, setSpecs] = useState(item?.specs?.length ? item.specs : isEdit ? [] : templateSpecs(startCategory));
   const [saving, setSaving] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
+  const [pasteMsg, setPasteMsg] = useState("");
+
+  // 승강기정보센터에서 복사한 내용을 분석해 상세 정보 칸에 채움 (같은 항목은 덮어쓰고, 없는 항목은 추가)
+  function applyElevatorText(text) {
+    const parsed = parseElevatorText(text);
+    if (parsed.length === 0) {
+      setPasteMsg("읽을 수 있는 승강기 정보가 없습니다. 승강기정보센터 상세 화면을 통째로 복사했는지 확인해주세요.");
+      return;
+    }
+    const next = specs.filter((s) => s.key.trim());
+    parsed.forEach(({ key, value }) => {
+      const idx = next.findIndex((s) => s.key.trim() === key);
+      if (idx >= 0) next[idx] = { ...next[idx], value };
+      else next.push({ key, value });
+    });
+    setSpecs(next);
+    setPasteMsg(`${parsed.length}개 항목을 채웠습니다. 내용 확인 후 저장해주세요.`);
+    setShowPaste(false);
+  }
 
   function changeCategory(next) {
     setCategory(next);
@@ -96,6 +117,30 @@ export default function FacilityItemFormModal({ buildingId, item, initialCategor
               </select>
             </label>
           </div>
+
+          {category === "엘리베이터" && (
+            <div className="rounded-lg border border-dashed border-accent p-3 mt-1">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs">
+                  <div className="font-semibold">승강기정보센터 자동 입력</div>
+                  <div className="text-inkDim">조회 화면에서 Ctrl+A → Ctrl+C 후 붙여넣기</div>
+                </div>
+                <button type="button" className="btn text-xs shrink-0" onClick={() => { setShowPaste(!showPaste); setPasteMsg(""); }}>
+                  {showPaste ? "닫기" : "붙여넣기"}
+                </button>
+              </div>
+              {showPaste && (
+                <textarea
+                  className="mt-2 text-xs"
+                  rows={4}
+                  autoFocus
+                  placeholder="여기에 붙여넣으면 바로 입력됩니다 (Ctrl+V)"
+                  onPaste={(e) => { e.preventDefault(); applyElevatorText(e.clipboardData.getData("text")); }}
+                />
+              )}
+              {pasteMsg && <div className="text-xs text-accent mt-2">{pasteMsg}</div>}
+            </div>
+          )}
 
           <div className="flex items-center justify-between mt-2">
             <span className="text-xs font-semibold">상세 정보</span>
