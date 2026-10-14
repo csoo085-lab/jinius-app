@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { prepareUpload } from "@/lib/uploadUtils";
 import ItemFormModal from "@/components/FacilityItemForm";
 
 export default function InspectionsManager({ buildings, buildingId, items, logsByItem }) {
@@ -33,10 +34,11 @@ export default function InspectionsManager({ buildings, buildingId, items, logsB
       .single();
     if (error) { setSaving(false); alert("저장 실패: " + error.message); return; }
 
-    for (const file of photoFiles) {
-      const path = `logs/${log.id}/${Date.now()}_${file.name}`;
+    for (const original of photoFiles) {
+      const { file, storageName } = await prepareUpload(original);
+      const path = `logs/${log.id}/${storageName}`;
       const { error: upErr } = await supabase.storage.from("attachments").upload(path, file);
-      if (upErr) { alert("사진 업로드 실패: " + upErr.message); continue; }
+      if (upErr) { alert(`"${original.name}" 사진 업로드 실패: ` + upErr.message); continue; }
       await supabase.from("inspection_photos").insert({ log_id: log.id, storage_path: path });
     }
 
