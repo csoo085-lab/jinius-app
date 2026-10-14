@@ -3,21 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
-
-const CATEGORIES = ["전기", "소방", "엘리베이터", "기계식주차", "인터넷", "펌프실", "비상발전기실", "급수·배수", "기계·냉난방", "청소", "기타"];
-const CYCLES = ["일간", "주간", "월간", "분기", "반기", "연간"];
-const SPEC_TEMPLATES = {
-  "전기": ["수전용량", "변압기 용량", "계약전력", "한전 고객번호"],
-  "소방": ["소화설비 종류", "설치대수", "소방안전관리자", "점검업체"],
-  "엘리베이터": ["제조사", "모델명", "정격속도", "정원(인승)", "설치일", "검사유효기간", "유지보수업체"],
-  "기계식주차": ["형식(모델)", "제조사", "설치대수", "정기검사 유효기간", "관리업체"],
-  "인터넷": ["통신사", "회선 종류", "회선속도", "계약만료일", "고객센터"],
-  "펌프실": ["펌프 모델", "용량(마력)", "설치일", "점검주기"],
-  "비상발전기실": ["제조사", "모델명", "용량(kW)", "연료종류", "설치일", "점검주기"],
-  "급수·배수": ["저수조 용량", "설치일"],
-  "기계·냉난방": ["기종", "용량", "설치일"],
-  "청소": [], "기타": [],
-};
+import ItemFormModal from "@/components/FacilityItemForm";
 
 export default function InspectionsManager({ buildings, buildingId, items, logsByItem }) {
   const supabase = createClient();
@@ -66,7 +52,7 @@ export default function InspectionsManager({ buildings, buildingId, items, logsB
       </h1>
 
       <div className="flex justify-end mb-3">
-        <button className="btn" onClick={() => setShowItemForm(true)}>+ 점검 항목 추가</button>
+        <button className="btn" onClick={() => setShowItemForm(true)}>+ 시설 등록</button>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -136,78 +122,6 @@ export default function InspectionsManager({ buildings, buildingId, items, logsB
       {editingItem && (
         <ItemFormModal buildingId={buildingId} item={editingItem} onClose={() => setEditingItem(null)} onSaved={() => { setEditingItem(null); router.refresh(); }} />
       )}
-    </div>
-  );
-}
-
-function ItemFormModal({ buildingId, item, onClose, onSaved }) {
-  const supabase = createClient();
-  const isEdit = !!item;
-  const [name, setName] = useState(item?.name || "");
-  const [category, setCategory] = useState(item?.category || "기타");
-  const [location, setLocation] = useState(item?.location || "");
-  const [cycle, setCycle] = useState(item?.cycle || "월간");
-  const [specs, setSpecs] = useState(item?.specs || []);
-  const [saving, setSaving] = useState(false);
-
-  function loadTemplate() {
-    const template = SPEC_TEMPLATES[category] || [];
-    if (template.length === 0) { alert("이 분류에는 기본 사양 템플릿이 없습니다."); return; }
-    const existingKeys = specs.map((s) => s.key);
-    const additions = template.filter((k) => !existingKeys.includes(k)).map((k) => ({ key: k, value: "" }));
-    setSpecs([...specs, ...additions]);
-  }
-
-  async function save() {
-    if (!name.trim()) { alert("설비/항목명을 입력해주세요."); return; }
-    const cleanSpecs = specs.filter((s) => s.key.trim()).map((s) => ({ key: s.key.trim(), value: s.value.trim() }));
-    setSaving(true);
-    const payload = { name: name.trim(), category, location: location.trim(), cycle, specs: cleanSpecs };
-    const { error } = isEdit
-      ? await supabase.from("facility_items").update(payload).eq("id", item.id)
-      : await supabase.from("facility_items").insert({ ...payload, building_id: buildingId });
-    setSaving(false);
-    if (error) { alert("저장 실패: " + error.message); return; }
-    onSaved();
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <div className="bg-surface rounded-xl max-w-md w-full p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="font-display font-bold mb-4">{isEdit ? "점검 항목 수정" : "점검 항목 추가"}</div>
-        <div className="flex flex-col gap-3">
-          <input placeholder="설비/항목명 (예: 옥상 급수펌프)" value={name} onChange={(e) => setName(e.target.value)} />
-          <select value={category} onChange={(e) => setCategory(e.target.value)}>
-            {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-          </select>
-          <input placeholder="위치" value={location} onChange={(e) => setLocation(e.target.value)} />
-          <select value={cycle} onChange={(e) => setCycle(e.target.value)}>
-            {CYCLES.map((c) => <option key={c}>{c}</option>)}
-          </select>
-
-          <div className="flex items-center justify-between mt-2">
-            <span className="text-xs font-semibold">사양(스펙) 정보</span>
-            <button type="button" className="btn-ghost text-xs" onClick={loadTemplate}>카테고리 기본값 불러오기</button>
-          </div>
-          {specs.length === 0 && <div className="text-xs text-inkDim">등록된 사양이 없습니다.</div>}
-          {specs.map((s, idx) => (
-            <div key={idx} className="grid grid-cols-[1fr_1fr_28px] gap-2 items-center">
-              <input value={s.key} placeholder="항목 (예: 제조사)" onChange={(e) => {
-                const next = [...specs]; next[idx] = { ...next[idx], key: e.target.value }; setSpecs(next);
-              }} />
-              <input value={s.value} placeholder="값" onChange={(e) => {
-                const next = [...specs]; next[idx] = { ...next[idx], value: e.target.value }; setSpecs(next);
-              }} />
-              <button type="button" className="text-danger text-xs" onClick={() => setSpecs(specs.filter((_, i) => i !== idx))}>✕</button>
-            </div>
-          ))}
-          <button type="button" className="btn-ghost text-xs w-fit" onClick={() => setSpecs([...specs, { key: "", value: "" }])}>+ 사양 추가</button>
-        </div>
-        <div className="flex justify-end gap-2 mt-5">
-          <button className="btn-ghost" onClick={onClose}>취소</button>
-          <button className="btn" disabled={saving} onClick={save}>{saving ? "저장 중…" : "저장"}</button>
-        </div>
-      </div>
     </div>
   );
 }
