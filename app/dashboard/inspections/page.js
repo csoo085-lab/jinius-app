@@ -1,37 +1,7 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabaseServer";
-import { getCurrentUser } from "@/lib/session";
-import InspectionsManager from "@/components/InspectionsManager";
 
-export default async function InspectionsPage({ searchParams }) {
-  const supabase = createClient();
-  const { role } = await getCurrentUser();
-  if (!["관리자", "담당자"].includes(role)) redirect("/dashboard");
-
-  const { data: buildings } = await supabase.from("buildings").select("*").order("created_at", { ascending: true });
-  if (!buildings || buildings.length === 0) {
-    return (
-      <div>
-        <h1 className="font-display font-bold text-xl mb-5">시설점검 관리</h1>
-        <div className="card text-sm text-inkDim">건물을 먼저 등록해주세요.</div>
-      </div>
-    );
-  }
-  const buildingId = searchParams?.building || buildings[0].id;
-
-  const { data: items } = await supabase.from("facility_items").select("*").eq("building_id", buildingId).order("category");
-  const itemIds = (items || []).map((i) => i.id);
-  const { data: logs } = itemIds.length
-    ? await supabase.from("inspection_logs").select("*").in("item_id", itemIds).order("log_date", { ascending: false })
-    : { data: [] };
-
-  const logsByItem = {};
-  (logs || []).forEach((l) => {
-    logsByItem[l.item_id] = logsByItem[l.item_id] || [];
-    logsByItem[l.item_id].push(l);
-  });
-
-  return (
-    <InspectionsManager buildings={buildings} buildingId={buildingId} items={items || []} logsByItem={logsByItem} />
-  );
+// 시설점검은 시설관리 화면으로 합쳐짐 — 예전 주소로 들어오면 시설관리로 이동
+export default function InspectionsPage({ searchParams }) {
+  const building = searchParams?.building;
+  redirect(building ? `/dashboard/facilities?building=${building}` : "/dashboard/facilities");
 }
