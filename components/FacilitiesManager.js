@@ -4,16 +4,17 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import FacilityItemFormModal from "@/components/FacilityItemForm";
-import { FACILITY_CATEGORIES } from "@/lib/facilityConstants";
 import { prepareUpload, DOC_MAX_SIDE } from "@/lib/uploadUtils";
 import FacilitySpecView, { ExpiryBadges } from "@/components/FacilitySpecView";
 
-export default function FacilitiesManager({ buildings, buildingId, groups, lastLogByItem, docCountByItem }) {
+export default function FacilitiesManager({ buildings, buildingId, groups, logsByItem, docCountByItem }) {
   const supabase = createClient();
   const router = useRouter();
   const [docsItem, setDocsItem] = useState(null);
   // null = 닫힘, { item: null, category } = 신규 등록, { item } = 수정
   const [form, setForm] = useState(null);
+  // 점검 기록을 입력 중인 시설 ID
+  const [logItemId, setLogItemId] = useState(null);
   const printRef = useRef(null);
 
   function handlePrint() {
@@ -27,7 +28,7 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
       <div className="flex items-end justify-between gap-3 mb-5 print:hidden">
         <div className="min-w-0">
           <div className="text-sm text-inkDim font-medium truncate">{buildingName}</div>
-          <h1 className="font-display font-bold text-xl">시설현황</h1>
+          <h1 className="font-display font-bold text-xl">시설관리</h1>
         </div>
         <div className="flex gap-2 shrink-0">
           <button className="btn-ghost hidden sm:inline-flex" onClick={handlePrint}>인쇄 / PDF</button>
@@ -35,36 +36,25 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
         </div>
       </div>
 
-      {/* 빠른 등록: 휴대폰에서는 옆으로 밀어서 보기 */}
-      <div className="flex gap-1.5 mb-5 overflow-x-auto sm:flex-wrap -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 print:hidden" style={{ scrollbarWidth: "none" }}>
-        <span className="text-xs text-inkDim self-center mr-1 whitespace-nowrap">빠른 등록</span>
-        {FACILITY_CATEGORIES.map((c) => (
-          <button key={c} className="tag bg-surface text-ink py-1.5 px-3 hover:border-accent hover:text-accent"
-            onClick={() => setForm({ item: null, category: c })}>+ {c}</button>
-        ))}
-      </div>
-
       <div ref={printRef}>
         <div className="hidden print:block mb-4">
-          <div className="font-display font-bold text-lg">{buildingName} · 시설현황</div>
+          <div className="font-display font-bold text-lg">{buildingName} · 시설관리</div>
           <div className="text-xs text-inkDim">{new Date().toLocaleDateString()}</div>
         </div>
 
         {groups.length === 0 && (
           <div className="card text-sm text-inkDim">
-            등록된 시설이 없습니다. 위의 <strong className="text-ink">+ 시설 등록</strong> 또는 분류 버튼을 눌러 소방·전기·엘리베이터 등 시설 정보를 입력하세요.
+            등록된 시설이 없습니다. 위의 <strong className="text-ink">+ 시설 등록</strong>을 눌러 소방·전기·엘리베이터 등 시설 정보를 입력하세요.
           </div>
         )}
 
         {groups.map((g) => (
           <div key={g.category} className="card mb-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="font-bold text-base">{g.category} <span className="text-accent font-semibold">{g.items.length}</span></div>
-              <button className="text-accent text-xs font-medium print:hidden" onClick={() => setForm({ item: null, category: g.category })}>+ 추가</button>
-            </div>
+            <div className="font-bold text-base mb-3">{g.category} <span className="text-accent font-semibold">{g.items.length}</span></div>
             <div className="flex flex-col gap-2">
               {g.items.map((item) => {
-                const lastLog = lastLogByItem[item.id];
+                const logs = logsByItem[item.id] || [];
+                const lastLog = logs[0];
                 const docCount = docCountByItem[item.id] || 0;
                 const specs = item.specs || [];
                 return (
@@ -85,11 +75,16 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
                         ) : (
                           <span className="tag border-borderBright text-inkDim">점검 이력 없음</span>
                         )}
+                        <button className={"text-xs " + (logItemId === item.id ? "btn" : "btn-ghost")} onClick={() => setLogItemId(logItemId === item.id ? null : item.id)}>점검 기록</button>
                         <button className="btn-ghost text-xs" onClick={() => setForm({ item })}>편집</button>
                         <button className="btn-ghost text-xs" onClick={() => setDocsItem(item)}>서류 {docCount ? `(${docCount})` : ""}</button>
                       </div>
                     </div>
+                    {logItemId === item.id && (
+                      <LogForm itemId={item.id} onClose={() => setLogItemId(null)} onSaved={() => { setLogItemId(null); router.refresh(); }} />
+                    )}
                     <FacilitySpecView category={item.category} specs={specs} />
+                    <LogHistory logs={logs} />
                   </div>
                 );
               })}
@@ -114,6 +109,84 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
         <DocsModal item={docsItem} onClose={() => setDocsItem(null)} onChanged={() => router.refresh()} />
       )}
     </div>
+  );
+}
+
+// 점검 기록 입력 (점검자·정상/이상·비고·현장 사진)
+function LogForm({ itemId, onClose, onSaved }) {
+  const supabase = createClient();
+  const [status, setStatus] = useState("정상");
+  const [inspector, setInspector] = useState("");
+  const [note, setNote] = useState("");
+  const [photos, setPhotos] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    const { data: log, error } = await supabase
+      .from("inspection_logs")
+      .insert({ item_id: itemId, status, note: note.trim(), inspector: inspector.trim() })
+      .select()
+      .single();
+    if (error) { setSaving(false); alert("저장 실패: " + error.message); return; }
+    for (const original of photos) {
+      const { file, storageName } = await prepareUpload(original);
+      const path = `logs/${log.id}/${storageName}`;
+      const { error: upErr } = await supabase.storage.from("attachments").upload(path, file);
+      if (upErr) { alert(`"${original.name}" 사진 업로드 실패: ` + upErr.message); continue; }
+      await supabase.from("inspection_photos").insert({ log_id: log.id, storage_path: path });
+    }
+    setSaving(false);
+    onSaved();
+  }
+
+  return (
+    <div className="mt-3 rounded-lg bg-surface border border-accent/40 p-3 print:hidden">
+      <div className="text-[11px] font-semibold text-accent mb-2">오늘 점검 기록</div>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <input placeholder="점검자" value={inspector} onChange={(e) => setInspector(e.target.value)} />
+        <div className="grid grid-cols-2 gap-1 rounded-xl bg-surface2 p-1">
+          {["정상", "이상"].map((s) => (
+            <button key={s} type="button" onClick={() => setStatus(s)}
+              className={"rounded-lg text-sm font-semibold " + (status === s ? (s === "정상" ? "bg-ok text-white" : "bg-danger text-white") : "text-inkDim")}>
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+      <textarea placeholder="비고 (이상 내용, 조치 사항 등)" rows={2} value={note} onChange={(e) => setNote(e.target.value)} className="mb-2" />
+      <label className="btn-ghost text-xs cursor-pointer mb-3">
+        📷 사진 {photos.length ? `${photos.length}장 선택됨` : "추가"}
+        <input type="file" accept="image/*" capture="environment" multiple className="hidden"
+          onChange={(e) => setPhotos(Array.from(e.target.files || []))} />
+      </label>
+      <div className="flex justify-end gap-2">
+        <button className="btn-ghost text-xs" onClick={onClose}>취소</button>
+        <button className="btn text-xs" disabled={saving} onClick={save}>{saving ? "저장 중…" : "기록 저장"}</button>
+      </div>
+    </div>
+  );
+}
+
+// 점검 이력 (최근 순, 접어서 보기)
+function LogHistory({ logs }) {
+  if (!logs.length) return null;
+  return (
+    <details className="mt-3 rounded-lg bg-surface border border-border px-3 py-2 print:hidden">
+      <summary className="text-xs font-semibold text-inkDim cursor-pointer">점검 이력 {logs.length}건</summary>
+      <ul className="mt-2 flex flex-col">
+        {logs.map((l) => (
+          <li key={l.id} className="flex items-start justify-between gap-3 py-2 border-t border-border text-xs">
+            <div className="min-w-0">
+              <span className="font-medium text-ink">{l.log_date}</span>
+              <span className="text-inkDim"> · {l.inspector || "점검자 미기재"}</span>
+              {l.note && <div className="text-inkDim mt-0.5 break-words">{l.note}</div>}
+            </div>
+            <span className={"tag shrink-0 " + (l.status === "정상" ? "text-ok border-ok/40" : "text-danger border-danger/40")}>{l.status}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
