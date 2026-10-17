@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+/* 지니어스 공통 디자인 — 토스 스타일: 넉넉한 여백, 큰 글씨, 테두리 대신 면과 그림자 */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
 
 @tailwind base;
 @tailwind components;
@@ -7,64 +8,116 @@
 :root {
   color-scheme: light dark;
 
-  --bg: 243 245 248;
-  --surface: 255 255 255;
-  --surface2: 240 242 246;
-  --border: 226 230 237;
-  --borderBright: 207 213 224;
-  --ink: 31 37 48;
-  --inkDim: 113 121 138;
-  --accent: 0 76 212;
-  --accent2: 38 47 110;
-  --ok: 47 158 99;
-  --warn: 209 140 31;
-  --danger: 217 76 76;
+  --bg: 242 244 246;          /* 바탕 회색 */
+  --surface: 255 255 255;     /* 카드 */
+  --surface2: 246 247 249;    /* 카드 속 영역·입력칸 */
+  --border: 233 236 239;
+  --borderBright: 214 219 224;
+  --ink: 25 31 40;            /* 본문 글씨 */
+  --inkDim: 107 118 132;      /* 보조 글씨 */
+  --accent: 49 130 246;       /* 포인트 파랑 */
+  --accent2: 27 100 218;
+  --ok: 3 178 108;
+  --warn: 245 139 0;
+  --danger: 240 68 82;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: 16 19 25;
-    --surface: 23 27 35;
-    --surface2: 31 36 48;
-    --border: 42 48 64;
-    --borderBright: 58 66 86;
-    --ink: 233 236 242;
-    --inkDim: 154 163 182;
-    --accent: 91 141 255;
-    --accent2: 143 164 255;
-    --ok: 78 203 138;
-    --warn: 240 172 74;
-    --danger: 255 107 107;
+    --bg: 16 16 20;
+    --surface: 27 27 33;
+    --surface2: 36 36 44;
+    --border: 44 44 53;
+    --borderBright: 62 62 74;
+    --ink: 236 238 242;
+    --inkDim: 150 155 168;
+    --accent: 76 154 255;
+    --accent2: 120 178 255;
+    --ok: 46 204 140;
+    --warn: 255 168 56;
+    --danger: 255 99 110;
   }
 }
 
 html, body {
   background: rgb(var(--bg));
   color: rgb(var(--ink));
-  font-family: 'Inter', sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
 }
 
-.font-display { font-family: 'Space Grotesk', sans-serif; }
-.font-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+/* 예전 글꼴 클래스도 모두 같은 글꼴로 통일 */
+.font-display { font-family: inherit; letter-spacing: -0.02em; }
+.font-mono { font-family: inherit; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 
+/* 화면 제목은 크고 굵게 */
+main h1 { font-size: 1.5rem !important; line-height: 2rem; font-weight: 700; letter-spacing: -0.03em; }
+@media (min-width: 768px) { main h1 { font-size: 1.75rem !important; line-height: 2.25rem; } }
+
+@layer base {
+/* 입력칸 */
 input, select, textarea {
-  @apply bg-surface2 border border-border rounded-lg px-3 py-2 text-sm w-full outline-none;
+  background: rgb(var(--surface2));
+  @apply border border-transparent rounded-xl px-3.5 py-2.5 text-[15px] w-full outline-none transition-colors;
 }
+input::placeholder, textarea::placeholder { color: rgb(var(--inkDim) / 0.7); }
 input:focus, select:focus, textarea:focus {
+  background: rgb(var(--surface));
   @apply border-accent;
+  box-shadow: 0 0 0 3px rgb(var(--accent) / 0.15);
 }
+input[type="file"] { @apply bg-transparent px-0 py-1 border-0; box-shadow: none; }
+input[type="checkbox"], input[type="radio"] { @apply w-auto p-0; accent-color: rgb(var(--accent)); }
+
+}
+
+/* 아래 공통 부품은 components 층에 두어, 화면별 개별 지정(hidden, w-32 등)이 우선 적용되게 함 */
+@layer components {
+/* 버튼 */
 .btn {
-  @apply inline-flex items-center gap-1.5 bg-accent text-white px-3 py-2 rounded-lg text-sm font-semibold cursor-pointer;
+  @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap bg-accent text-white px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer transition active:scale-[0.98];
 }
+.btn:hover { background: rgb(var(--accent2)); }
+.btn:disabled { @apply opacity-50 cursor-not-allowed; }
 .btn-ghost {
-  @apply inline-flex items-center gap-1.5 bg-transparent border border-borderBright text-ink px-3 py-2 rounded-lg text-sm font-semibold cursor-pointer;
+  @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-ink px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer transition active:scale-[0.98];
+  background: rgb(var(--surface2));
+  border: 0;
 }
+.btn-ghost:hover { background: rgb(var(--border)); }
+/* 회색 영역 안의 보조 버튼은 흰색으로 띄움 */
+.bg-surface2 .btn-ghost { background: rgb(var(--surface)); box-shadow: 0 1px 2px rgb(0 0 0 / 0.06); }
+.bg-surface2 .btn-ghost:hover { background: rgb(var(--border)); }
+.btn.text-xs, .btn-ghost.text-xs { @apply px-3 py-1.5 rounded-lg; }
+
+/* 카드 */
 .card {
-  @apply bg-surface border border-border rounded-xl p-4 shadow-sm;
+  background: rgb(var(--surface));
+  @apply rounded-2xl p-4;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.04);
+  overflow-x: auto;
 }
+@media (min-width: 768px) { .card { @apply p-6; } }
+@media (prefers-color-scheme: dark) { .card { box-shadow: none; } }
+
+/* 작은 배지 */
 .tag {
-  @apply inline-flex items-center gap-1 border border-dashed rounded px-2 py-0.5 text-xs font-mono;
+  @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium border;
+  border-color: rgb(var(--border));
 }
+
+}
+
+/* 표: 머리줄은 연하게, 줄 간격은 넉넉하게 */
+.card table th { @apply font-medium text-xs text-inkDim; }
+.card table th, .card table td { padding-top: 0.75rem; padding-bottom: 0.75rem; padding-right: 0.75rem; }
+.card table tr { border-color: rgb(var(--border)); }
+.card table tbody tr:last-child { border-bottom: 0; }
+
+/* 팝업창 */
+.fixed.inset-0 > .bg-surface { border-radius: 1.5rem; box-shadow: 0 20px 60px rgb(0 0 0 / 0.2); }
 
 @media print {
   @page { margin: 15mm; }
