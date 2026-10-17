@@ -13,7 +13,7 @@ export default async function FacilitiesPage({ searchParams }) {
   if (!buildings || buildings.length === 0) {
     return (
       <div>
-        <h1 className="font-display font-bold text-xl mb-5">시설현황</h1>
+        <h1 className="font-display font-bold text-xl mb-5">시설관리</h1>
         <div className="card text-sm text-inkDim">건물을 먼저 등록해주세요.</div>
       </div>
     );
@@ -37,9 +37,9 @@ export default async function FacilitiesPage({ searchParams }) {
     }),
   })).filter((g) => g.items.length > 0);
 
-  const lastLogByItem = {};
+  const logsByItem = {};
   (logs || []).forEach((l) => {
-    if (!lastLogByItem[l.item_id]) lastLogByItem[l.item_id] = l;
+    (logsByItem[l.item_id] = logsByItem[l.item_id] || []).push(l);
   });
   const docCountByItem = {};
   (documents || []).forEach((d) => {
@@ -51,7 +51,7 @@ export default async function FacilitiesPage({ searchParams }) {
       buildings={buildings}
       buildingId={buildingId}
       groups={groups}
-      lastLogByItem={lastLogByItem}
+      logsByItem={logsByItem}
       docCountByItem={docCountByItem}
     />
   );
