@@ -37,6 +37,7 @@ const ICON_PATHS = {
   clipboard: "M9 3h6v3H9zM8 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 13l2 2 4-4",
   gauge: "M12 14l4-4M3.3 17a9 9 0 1 1 17.4 0",
   minutes: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5",
+  card: "M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zM2 10h20M6 15h4",
   menu: "M4 6h16M4 12h16M4 18h16",
   chevron: "m9 6 6 6-6 6",
   logout: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
@@ -57,6 +58,7 @@ const HREF_ICON = {
   "/dashboard/facilities": "layers",
   "/dashboard/inspections": "clipboard",
   "/dashboard/meters": "gauge",
+  "/dashboard/expenses": "card",
 };
 
 function Icon({ name, className = "w-5 h-5" }) {
