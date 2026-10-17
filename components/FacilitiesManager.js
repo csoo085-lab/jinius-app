@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabaseClient";
 import FacilityItemFormModal from "@/components/FacilityItemForm";
 import { FACILITY_CATEGORIES } from "@/lib/facilityConstants";
 import { prepareUpload, DOC_MAX_SIDE } from "@/lib/uploadUtils";
+import FacilitySpecView, { ExpiryBadges } from "@/components/FacilitySpecView";
 
 export default function FacilitiesManager({ buildings, buildingId, groups, lastLogByItem, docCountByItem }) {
   const supabase = createClient();
@@ -23,20 +24,22 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 print:hidden">
-        <h1 className="font-display font-bold text-xl">
-          시설현황 <span className="text-inkDim font-normal text-base">· {buildingName}</span>
-        </h1>
-        <div className="flex gap-2">
-          <button className="btn-ghost" onClick={handlePrint}>인쇄 / PDF</button>
+      <div className="flex items-end justify-between gap-3 mb-5 print:hidden">
+        <div className="min-w-0">
+          <div className="text-sm text-inkDim font-medium truncate">{buildingName}</div>
+          <h1 className="font-display font-bold text-xl">시설현황</h1>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <button className="btn-ghost hidden sm:inline-flex" onClick={handlePrint}>인쇄 / PDF</button>
           <button className="btn" onClick={() => setForm({ item: null, category: "전기" })}>+ 시설 등록</button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1.5 mb-4 print:hidden">
-        <span className="text-xs text-inkDim self-center mr-1">빠른 등록:</span>
+      {/* 빠른 등록: 휴대폰에서는 옆으로 밀어서 보기 */}
+      <div className="flex gap-1.5 mb-5 overflow-x-auto sm:flex-wrap -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 print:hidden" style={{ scrollbarWidth: "none" }}>
+        <span className="text-xs text-inkDim self-center mr-1 whitespace-nowrap">빠른 등록</span>
         {FACILITY_CATEGORIES.map((c) => (
-          <button key={c} className="tag border-borderBright text-ink hover:border-accent hover:text-accent"
+          <button key={c} className="tag bg-surface text-ink py-1.5 px-3 hover:border-accent hover:text-accent"
             onClick={() => setForm({ item: null, category: c })}>+ {c}</button>
         ))}
       </div>
@@ -56,7 +59,7 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
         {groups.map((g) => (
           <div key={g.category} className="card mb-4">
             <div className="flex items-center justify-between mb-3">
-              <div className="font-semibold text-sm">{g.category} <span className="text-inkDim font-normal">({g.items.length})</span></div>
+              <div className="font-bold text-base">{g.category} <span className="text-accent font-semibold">{g.items.length}</span></div>
               <button className="text-accent text-xs font-medium print:hidden" onClick={() => setForm({ item: null, category: g.category })}>+ 추가</button>
             </div>
             <div className="flex flex-col gap-2">
@@ -65,11 +68,14 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
                 const docCount = docCountByItem[item.id] || 0;
                 const specs = item.specs || [];
                 return (
-                  <div key={item.id} className="bg-surface2 rounded-lg p-3">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div>
-                        <div className="font-semibold text-sm">{item.name}</div>
-                        <div className="text-xs text-inkDim">{item.location || "위치 미기재"} · 주기 {item.cycle}</div>
+                  <div key={item.id} className="bg-surface2 rounded-xl p-3 sm:p-4">
+                    <div className="flex items-start justify-between flex-wrap gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <div>
+                          <div className="font-semibold text-base">{item.name}</div>
+                          <div className="text-xs text-inkDim">{item.location || "위치 미기재"} · 점검 주기 {item.cycle}</div>
+                        </div>
+                        <ExpiryBadges specs={specs} />
                       </div>
                       <div className="flex items-center gap-2 print:hidden">
                         {lastLog ? (
@@ -83,11 +89,7 @@ export default function FacilitiesManager({ buildings, buildingId, groups, lastL
                         <button className="btn-ghost text-xs" onClick={() => setDocsItem(item)}>서류 {docCount ? `(${docCount})` : ""}</button>
                       </div>
                     </div>
-                    {specs.length > 0 && (
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-0.5 mt-2">
-                        {specs.map((s, i) => <div key={i} className="text-xs text-inkDim"><strong className="text-ink font-medium">{s.key}</strong>: {s.value || "-"}</div>)}
-                      </div>
-                    )}
+                    <FacilitySpecView category={item.category} specs={specs} />
                   </div>
                 );
               })}
