@@ -179,3 +179,131 @@ export default function Sidebar({ role, displayName, loginAt, buildings }) {
         >
           <Icon name="menu" className="w-6 h-6" />
           전체
+        </button>
+      </nav>
+
+      {/* 모바일에서 전체 메뉴가 열렸을 때 뒤 배경 */}
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-0 bg-black/40 z-40" onClick={() => setMobileOpen(false)} />
+      )}
+
+      {/* 사이드 메뉴 (PC는 항상, 모바일은 '전체' 눌렀을 때) */}
+      <aside
+        className={
+          "fixed md:sticky md:top-0 inset-y-0 left-0 z-50 w-[82%] max-w-xs md:w-64 md:h-screen shrink-0 bg-surface md:border-r border-border flex flex-col print:hidden overflow-y-auto transition-transform duration-200 ease-out md:translate-x-0 " +
+          (mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full")
+        }
+      >
+        <div className="px-5 pt-6 pb-4">
+          <Link href="/dashboard" className="block mb-5">
+            <img src="/jinius_logo.png" alt="지니어스 JINIUS" className="w-32 h-auto" />
+          </Link>
+          <div className="flex items-center gap-3 rounded-2xl bg-surface2 px-3 py-2.5">
+            <span className="w-9 h-9 rounded-full bg-accent text-white font-bold flex items-center justify-center shrink-0">{initial}</span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold truncate">{displayName}</div>
+              <div className="text-xs text-accent font-medium">{role}</div>
+            </div>
+          </div>
+        </div>
+
+        <nav className="flex flex-col gap-0.5 flex-1 px-3 pb-4">
+          {NAV_GROUPS.map((group, gi) => {
+            const groupItems = group.items.filter((n) => n.roles.includes(role));
+            if (groupItems.length === 0) return null;
+            return (
+              <div key={gi} className={gi > 0 ? "mt-4" : ""}>
+                {group.label && <div className="px-3 mb-1.5 text-xs font-semibold text-inkDim">{group.label}</div>}
+                <div className="flex flex-col gap-0.5">
+                  {groupItems.map((item) => (
+                    <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)} className={navLinkClass(pathname === item.href)}>
+                      <Icon name={HREF_ICON[item.href]} />
+                      <span className="truncate">{item.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {showBuildingTree && (
+            <div className="mt-4">
+              <div className="px-3 mb-1.5 text-xs font-semibold text-inkDim flex items-center justify-between">
+                <span>건물별 업무</span>
+                <span className="text-inkDim/70 font-medium">{buildings.length}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {buildings.map((b, bi) => {
+                  const isExpanded = expandedBuildingId === b.id;
+                  const isCurrent = isOnBuildingSubpage && (currentBuildingId || buildings[0]?.id) === b.id;
+                  return (
+                    <div key={b.id}>
+                      <button
+                        onClick={() => toggleBuilding(b.id)}
+                        className={
+                          "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[15px] text-left transition-colors hover:bg-surface2 " +
+                          (isCurrent ? "font-semibold text-ink" : "font-medium text-ink/80")
+                        }
+                      >
+                        <BuildingChip name={b.name} index={bi} />
+                        <span className="truncate flex-1">{b.name}</span>
+                        <Icon name="chevron" className={"w-4 h-4 text-inkDim transition-transform " + (isExpanded ? "rotate-90" : "")} />
+                      </button>
+                      {isExpanded && (
+                        <div className="flex flex-col gap-0.5 ml-6 pl-3 border-l-2 border-border my-1">
+                          {buildingSubItemsForRole.map((item) => {
+                            const href = `${item.hrefBase}?building=${b.id}`;
+                            const active = pathname === item.hrefBase && (currentBuildingId || buildings[0]?.id) === b.id;
+                            return (
+                              <Link
+                                key={item.hrefBase}
+                                href={href}
+                                onClick={() => { setManualExpanded(b.id); setMobileOpen(false); }}
+                                className={
+                                  "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors " +
+                                  (active ? "bg-accent/10 text-accent font-semibold" : "text-inkDim font-medium hover:bg-surface2 hover:text-ink")
+                                }
+                              >
+                                <Icon name={HREF_ICON[item.hrefBase]} className="w-4 h-4" />
+                                {item.label}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </nav>
+
+        <div className="px-3 pb-5 pt-3 border-t border-border flex flex-col gap-0.5">
+          <a
+            href="https://blog.naver.com/jinius_estate"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-ink/80 hover:bg-surface2"
+          >
+            <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ backgroundColor: "#03C75A" }}>
+              <svg viewBox="0 0 24 24" className="w-3 h-3" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+                <path d="M16.273 12.845 7.376 0H0v24h7.726V11.156L16.624 24H24V0h-7.727v12.845Z" />
+              </svg>
+            </span>
+            지니어스 블로그
+          </a>
+          <button onClick={handleLogout} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-ink/80 hover:bg-surface2 hover:text-danger text-left">
+            <Icon name="logout" />
+            로그아웃
+          </button>
+          {loginTime && (
+            <div className="px-3 pt-2 text-[11px] text-inkDim">
+              {formatDateTime(loginAt)} 접속 · {formatElapsed(now - loginTime)} 경과
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
