@@ -380,6 +380,19 @@ function ExpenseModal({ buildingId, expense, receipts, canManage, onClose, onSav
     setNewFiles((prev) => [...prev, ...picked]);
   }
 
+  // PC: 파일을 창 위로 끌어다 놓으면 증빙으로 추가
+  const [dragOver, setDragOver] = useState(false);
+  const dropProps = readOnly ? {} : {
+    onDragOver: (e) => { e.preventDefault(); if (!dragOver) setDragOver(true); },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); },
+    onDrop: (e) => {
+      e.preventDefault();
+      setDragOver(false);
+      const dropped = Array.from(e.dataTransfer?.files || []);
+      if (dropped.length) setNewFiles((prev) => [...prev, ...dropped]);
+    },
+  };
+
   async function removeExisting(r) {
     if (!confirm("이 증빙을 삭제할까요?")) return;
     await supabase.storage.from("attachments").remove([r.storage_path]);
@@ -432,8 +445,14 @@ function ExpenseModal({ buildingId, expense, receipts, canManage, onClose, onSav
   const isImage = (name) => /\.(jpe?g|png|webp|heic|gif)$/i.test(name || "");
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center sm:p-4 z-50" onClick={onClose}>
-      <div className="bg-surface w-full sm:max-w-md max-h-[92vh] overflow-y-auto p-5 rounded-t-3xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center sm:p-4 z-50" onClick={onClose}
+      onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
+      <div className="relative bg-surface w-full sm:max-w-md max-h-[92vh] overflow-y-auto p-5 rounded-t-3xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()} {...dropProps}>
+        {dragOver && (
+          <div className="pointer-events-none absolute inset-2 z-10 rounded-2xl border-2 border-dashed border-accent bg-accent/10 flex items-center justify-center">
+            <div className="bg-surface rounded-xl px-4 py-3 text-sm font-semibold text-accent shadow">여기에 놓으면 증빙으로 추가돼요</div>
+          </div>
+        )}
         <div className="flex items-center justify-between mb-4">
           <div className="font-bold text-lg">{readOnly ? "지출 상세" : isEdit ? "지출 수정" : "지출 등록"}</div>
           <button className="text-inkDim text-xl leading-none px-2" onClick={onClose} aria-label="닫기">×</button>
@@ -486,6 +505,7 @@ function ExpenseModal({ buildingId, expense, receipts, canManage, onClose, onSav
           {/* 증빙 */}
           <div>
             <div className="text-xs font-semibold text-inkDim mb-1.5">증빙 (영수증·세금계산서·이체확인증)</div>
+            {!readOnly && <div className="hidden md:block text-[11px] text-inkDim -mt-1 mb-1.5">PC에서는 파일(사진·PDF·엑셀)을 이 창에 끌어다 놓아도 돼요.</div>}
             <div className="grid grid-cols-3 gap-2">
               {existing.map((r) => (
                 <div key={r.id} className="relative aspect-square rounded-xl bg-surface2 overflow-hidden">
@@ -529,7 +549,7 @@ function ExpenseModal({ buildingId, expense, receipts, canManage, onClose, onSav
                   <label className="aspect-square rounded-xl border-2 border-dashed border-borderBright flex flex-col items-center justify-center gap-1 text-inkDim cursor-pointer hover:border-accent hover:text-accent">
                     <span className="text-2xl">🖼️</span>
                     <span className="text-[11px] font-semibold">파일 선택</span>
-                    <input type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={addFiles} />
+                    <input type="file" accept="image/*,application/pdf,.xls,.xlsx,.xlsm,.csv,.hwp,.hwpx,.doc,.docx" multiple className="hidden" onChange={addFiles} />
                   </label>
                 </>
               )}
