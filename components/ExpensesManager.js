@@ -31,7 +31,7 @@ function dateLabel(iso) {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
 }
 
-export default function ExpensesManager({ buildingName, buildingId, month, expenses, receiptsByExpense, canManage, setupNeeded }) {
+export default function ExpensesManager({ buildingName, buildingId, month, expenses, receiptsByExpense, canManage, setupNeeded, embedded = false }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -65,7 +65,7 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
   if (setupNeeded) {
     return (
       <div>
-        <h1 className="font-display font-bold text-xl mb-5">지출내역</h1>
+        {!embedded && <h1 className="font-display font-bold text-xl mb-5">지출내역</h1>}
         <div className="card text-sm">
           지출내역 기능을 쓰려면 Supabase에서 <strong>expenses.sql</strong>을 한 번 실행해야 합니다.
         </div>
@@ -76,10 +76,14 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
   return (
     <div>
       <div className="flex items-end justify-between gap-3 mb-5">
-        <div className="min-w-0">
-          <div className="text-sm text-inkDim font-medium truncate">{buildingName}</div>
-          <h1 className="font-display font-bold text-xl">지출내역</h1>
-        </div>
+        {embedded ? (
+          <div className="font-semibold text-sm text-inkDim">지출 등록·영수증</div>
+        ) : (
+          <div className="min-w-0">
+            <div className="text-sm text-inkDim font-medium truncate">{buildingName}</div>
+            <h1 className="font-display font-bold text-xl">지출내역</h1>
+          </div>
+        )}
         {canManage && (
           <button className="btn shrink-0" onClick={() => setEditing("new")}>+ 지출 등록</button>
         )}
