@@ -23,7 +23,7 @@ const TABS = [
 
 function Title({ buildingName }) {
   return (
-    <div className="mb-4">
+    <div className="mb-4 print:hidden">
       {buildingName && <div className="text-sm text-inkDim font-medium truncate">{buildingName}</div>}
       <h1 className="font-display font-bold text-xl">통장·지출</h1>
     </div>
@@ -124,7 +124,7 @@ export default async function MoneyPage({ searchParams }) {
       <Title buildingName={buildingName} />
 
       {/* 탭 */}
-      <div className="flex gap-1 p-1 rounded-xl bg-surface2 mb-5 w-full md:w-auto md:inline-flex">
+      <div className="flex gap-1 p-1 rounded-xl bg-surface2 mb-5 w-full md:w-auto md:inline-flex print:hidden">
         {TABS.map((t) => (
           <Link
             key={t.key}
