@@ -10,7 +10,7 @@ function periodLabel(s) {
   return `${s.period_start || "-"} ~ ${s.period_end || "-"}`;
 }
 
-export default function BankStatementsManager({ initialStatements, buildingId, canManage }) {
+export default function BankStatementsManager({ initialStatements, buildingId, canManage, embedded = false }) {
   const supabase = createClient();
   const router = useRouter();
 
@@ -55,11 +55,11 @@ export default function BankStatementsManager({ initialStatements, buildingId, c
 
   return (
     <div>
-      <h1 className="font-display font-bold text-xl mb-5">통장내역</h1>
+      {!embedded && <h1 className="font-display font-bold text-xl mb-5">통장내역</h1>}
 
       {canManage && (
         <div className="card mb-4">
-          <div className="font-semibold text-sm mb-3">통장내역 업로드</div>
+          <div className="font-semibold text-sm mb-3">통장 입출금내역 파일 올리기</div>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <label className="text-xs text-inkDim font-medium">기간 시작
               <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
