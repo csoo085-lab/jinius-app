@@ -37,6 +37,34 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
   const searchParams = useSearchParams();
   const [editing, setEditing] = useState(null); // null | "new" | expense
   const [filter, setFilter] = useState("전체");
+  const [printUrls, setPrintUrls] = useState(null); // 출력 준비 중일 때 { storage_path: 서명URL }
+  const [preparing, setPreparing] = useState(false);
+
+  // 출력: 영수증 사진 주소를 받아 모두 불러온 뒤 인쇄 창을 띄움
+  async function handlePrint() {
+    const all = expenses.flatMap((e) => receiptsByExpense[e.id] || []);
+    if (!all.length) { setPrintUrls({}); return; }
+    setPreparing(true);
+    const supabase = createClient();
+    const { data } = await supabase.storage.from("attachments").createSignedUrls(all.map((r) => r.storage_path), 600);
+    const map = {};
+    (data || []).forEach((d, i) => { if (d?.signedUrl) map[all[i].storage_path] = d.signedUrl; });
+    setPrintUrls(map);
+  }
+
+  useEffect(() => {
+    if (!printUrls) return;
+    let cancelled = false;
+    const imgs = Array.from(document.querySelectorAll("#expense-print img"));
+    Promise.all(imgs.map((img) => (img.complete ? null : new Promise((r) => { img.onload = r; img.onerror = r; }))))
+      .then(() => {
+        if (cancelled) return;
+        setPreparing(false);
+        // 출력용 내용은 화면에 보이지 않으므로 그대로 둠 (모바일 브라우저는 인쇄 창이 늦게 떠서 지우면 빈 장이 나옴)
+        setTimeout(() => window.print(), 100);
+      });
+    return () => { cancelled = true; };
+  }, [printUrls]);
 
   function goMonth(next) {
     const params = new URLSearchParams(searchParams.toString());
@@ -75,6 +103,7 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
 
   return (
     <div>
+      <div className="print:hidden">
       <div className="flex items-end justify-between gap-3 mb-5">
         {embedded ? (
           <div className="font-semibold text-sm text-inkDim">지출 등록·영수증</div>
@@ -84,9 +113,14 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
             <h1 className="font-display font-bold text-xl">지출내역</h1>
           </div>
         )}
-        {canManage && (
-          <button className="btn shrink-0" onClick={() => setEditing("new")}>+ 지출 등록</button>
-        )}
+        <div className="flex gap-2 shrink-0">
+          <button className="btn-ghost" onClick={handlePrint} disabled={preparing || expenses.length === 0}>
+            {preparing ? "출력 준비 중…" : "🖨 출력"}
+          </button>
+          {canManage && (
+            <button className="btn" onClick={() => setEditing("new")}>+ 지출 등록</button>
+          )}
+        </div>
       </div>
 
       {/* 월 선택 + 합계 */}
@@ -130,7 +164,7 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
         <div className="card text-sm text-inkDim text-center py-10">
           {expenses.length === 0 ? "이번 달 등록된 지출이 없습니다." : "선택한 분류의 지출이 없습니다."}
           {canManage && expenses.length === 0 && (
-            <div className="mt-3"><button className="btn" onClick={() => setEditing("new")}>+ 지출 등록</button></div>
+            <div className="mt-1 text-xs">오른쪽 위 [+ 지출 등록]을 눌러 추가하세요.</div>
           )}
         </div>
       ) : (
@@ -170,6 +204,21 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
         </div>
       )}
 
+      </div>
+
+      {/* 출력용 (화면에는 보이지 않음) */}
+      {printUrls && (
+        <PrintSheet
+          buildingName={buildingName}
+          month={month}
+          expenses={expenses}
+          receiptsByExpense={receiptsByExpense}
+          byCategory={byCategory}
+          total={total}
+          urls={printUrls}
+        />
+      )}
+
       {editing && (
         <ExpenseModal
           key={editing === "new" ? "new" : editing.id}
@@ -180,6 +229,108 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); router.refresh(); }}
         />
+      )}
+    </div>
+  );
+}
+
+const isImage = (name) => /\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(name || "");
+
+function PrintSheet({ buildingName, month, expenses, receiptsByExpense, byCategory, total, urls }) {
+  const [y, m] = month.split("-");
+  const rows = [...expenses].sort((a, b) =>
+    a.expense_date === b.expense_date ? (a.created_at || "").localeCompare(b.created_at || "") : a.expense_date.localeCompare(b.expense_date));
+  const withReceipts = rows.map((e, i) => ({ e, no: i + 1, rcs: receiptsByExpense[e.id] || [] })).filter((x) => x.rcs.length);
+  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }).replaceAll("-", ". ");
+  const cell = "border border-black/40 px-2 py-1.5";
+
+  return (
+    <div id="expense-print" className="hidden print:block text-black text-[11pt]">
+      <div className="text-center mb-5">
+        <div className="text-[18pt] font-bold">{buildingName} 지출내역서</div>
+        <div className="mt-1">{y}년 {Number(m)}월 (1일 ~ 말일)</div>
+      </div>
+
+      <table className="w-full border-collapse text-[10pt]">
+        <thead>
+          <tr className="bg-black/5">
+            <th className={cell + " w-8"}>No</th>
+            <th className={cell + " w-14"}>날짜</th>
+            <th className={cell}>내용</th>
+            <th className={cell + " w-20"}>분류</th>
+            <th className={cell + " w-24"}>거래처</th>
+            <th className={cell + " w-14"}>결제</th>
+            <th className={cell + " w-20 text-right"}>금액(원)</th>
+            <th className={cell + " w-10"}>증빙</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((e, i) => {
+            const rc = (receiptsByExpense[e.id] || []).length;
+            return (
+              <tr key={e.id} className="break-inside-avoid">
+                <td className={cell + " text-center"}>{i + 1}</td>
+                <td className={cell + " text-center"}>{e.expense_date.slice(5).replace("-", "/")}</td>
+                <td className={cell}>{e.description || "-"}</td>
+                <td className={cell}>{e.category}</td>
+                <td className={cell}>{e.vendor || "-"}</td>
+                <td className={cell + " text-center"}>{e.payment_method || "-"}</td>
+                <td className={cell + " text-right"}>{won(e.amount)}</td>
+                <td className={cell + " text-center"}>{rc ? `${rc}장` : "없음"}</td>
+              </tr>
+            );
+          })}
+          <tr className="font-bold">
+            <td className={cell + " text-center"} colSpan={6}>합 계</td>
+            <td className={cell + " text-right"}>{won(total)}</td>
+            <td className={cell}></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="mt-5 break-inside-avoid">
+        <div className="font-bold mb-1.5">분류별 소계</div>
+        <table className="border-collapse text-[10pt]">
+          <tbody>
+            {byCategory.map(([c, v]) => (
+              <tr key={c}>
+                <td className={cell + " w-40"}>{c}</td>
+                <td className={cell + " w-32 text-right"}>{won(v)}원</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-8 text-right text-[10pt]">
+        <div>출력일: {today}</div>
+        <div className="mt-1 font-semibold">지니어스 관리사무소 (문의 1551-9976)</div>
+      </div>
+
+      {/* 영수증 첨부 — 다음 장부터 */}
+      {withReceipts.length > 0 && (
+        <div className="break-before-page">
+          <div className="text-[14pt] font-bold mb-4">증빙 첨부 ({y}년 {Number(m)}월)</div>
+          {withReceipts.map(({ e, no, rcs }) => (
+            <div key={e.id} className="mb-6">
+              <div className="font-bold border-b border-black/40 pb-1 mb-2 break-after-avoid">
+                No.{no} · {e.expense_date.slice(5).replace("-", "/")} · {e.description || e.category} · {won(e.amount)}원
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {rcs.map((r) =>
+                  isImage(r.file_name) && urls[r.storage_path] ? (
+                    <img key={r.id} src={urls[r.storage_path]} alt={r.file_name}
+                      className="break-inside-avoid max-h-[115mm] max-w-full object-contain border border-black/20" />
+                  ) : (
+                    <div key={r.id} className="text-[10pt] border border-black/30 px-3 py-2">
+                      📄 {r.file_name} (사진이 아닌 파일 — 앱에서 확인)
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
