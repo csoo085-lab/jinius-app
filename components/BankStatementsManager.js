@@ -18,6 +18,7 @@ export default function BankStatementsManager({ initialStatements, buildingId, c
   const [periodEnd, setPeriodEnd] = useState("");
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   function publicUrl(path) {
     return supabase.storage.from("building_docs").getPublicUrl(path).data.publicUrl;
@@ -68,9 +69,22 @@ export default function BankStatementsManager({ initialStatements, buildingId, c
               <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
             </label>
           </div>
-          <label className="text-xs text-inkDim font-medium block mb-3">
-            파일 (이미지 또는 문서)
-            <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="block mt-1 text-sm" />
+          <label
+            onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer?.files?.[0]; if (f) setFile(f); }}
+            className={"block mb-3 rounded-xl border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors " +
+              (dragOver ? "border-accent bg-accent/10" : "border-borderBright hover:border-accent")}
+          >
+            <div className="text-2xl mb-1">📂</div>
+            {file ? (
+              <div className="text-sm font-semibold text-ink break-all">{file.name}</div>
+            ) : (
+              <div className="text-sm text-inkDim">
+                입출금내역 엑셀(또는 PDF·사진)을 여기에 <b className="text-ink">끌어다 놓거나</b> 눌러서 선택하세요
+              </div>
+            )}
+            <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" />
           </label>
           <button className="btn" disabled={saving} onClick={addStatement}>{saving ? "업로드 중…" : "등록"}</button>
         </div>
