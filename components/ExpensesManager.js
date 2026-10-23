@@ -31,6 +31,8 @@ function dateLabel(iso) {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
 }
 
+export { won, CATEGORY_COLORS, shiftMonth, dateLabel };
+
 export default function ExpensesManager({ buildingName, buildingId, month, expenses, receiptsByExpense, canManage, setupNeeded, embedded = false }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -336,16 +338,18 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, byCatego
   );
 }
 
-function ExpenseModal({ buildingId, expense, receipts, canManage, onClose, onSaved }) {
+// prefill: 통장 거래에서 [지출로 등록]을 눌렀을 때 미리 채울 값 { expense_date, amount, description, vendor }
+export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose, onSaved, prefill }) {
   const supabase = createClient();
   const isEdit = !!expense;
   const readOnly = !canManage;
-  const [date, setDate] = useState(expense?.expense_date || todayKST());
-  const [amount, setAmount] = useState(expense ? String(expense.amount) : "");
+  const init = expense || prefill || {};
+  const [date, setDate] = useState(init.expense_date || todayKST());
+  const [amount, setAmount] = useState(init.amount ? String(init.amount) : "");
   const [category, setCategory] = useState(expense?.category || EXPENSE_CATEGORIES[0]);
-  const [description, setDescription] = useState(expense?.description || "");
-  const [vendor, setVendor] = useState(expense?.vendor || "");
-  const [payment, setPayment] = useState(expense?.payment_method || "계좌이체");
+  const [description, setDescription] = useState(init.description || "");
+  const [vendor, setVendor] = useState(init.vendor || "");
+  const [payment, setPayment] = useState(init.payment_method || "계좌이체");
   const [memo, setMemo] = useState(expense?.memo || "");
   const [newFiles, setNewFiles] = useState([]); // 새로 추가할 사진/파일
   const [previews, setPreviews] = useState([]);
@@ -429,7 +433,7 @@ function ExpenseModal({ buildingId, expense, receipts, canManage, onClose, onSav
       });
     }
     setSaving(false);
-    onSaved();
+    onSaved(expenseId);
   }
 
   async function remove() {
