@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabaseServer";
 import { getCurrentUser } from "@/lib/session";
 import ExpensesManager from "@/components/ExpensesManager";
 import BankStatementsManager from "@/components/BankStatementsManager";
+import BankTransactionsManager from "@/components/BankTransactionsManager";
 
 // 한국 시간 기준 "YYYY-MM"
 function thisMonthKST() {
@@ -17,9 +18,18 @@ function monthRange(month) {
 }
 
 const TABS = [
+  { key: "txns", label: "거래내역" },
   { key: "expenses", label: "지출" },
   { key: "files", label: "통장 파일" },
 ];
+const DEFAULT_TAB = "txns";
+
+// 날짜 문자열 더하기/빼기 (YYYY-MM-DD)
+function addDays(iso, n) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 
 function Title({ buildingName }) {
   return (
@@ -63,7 +73,7 @@ export default async function MoneyPage({ searchParams }) {
   }
   const buildingName = buildings.find((b) => b.id === buildingId)?.name || "";
 
-  const tab = TABS.some((t) => t.key === searchParams?.tab) ? searchParams.tab : "expenses";
+  const tab = TABS.some((t) => t.key === searchParams?.tab) ? searchParams.tab : DEFAULT_TAB;
   const month = /^\d{4}-\d{2}$/.test(searchParams?.month || "") ? searchParams.month : thisMonthKST();
 
   // 탭 주소: 건물·월은 그대로 유지
@@ -71,13 +81,65 @@ export default async function MoneyPage({ searchParams }) {
     const p = new URLSearchParams();
     if (canManage) p.set("building", buildingId);
     if (searchParams?.month) p.set("month", month);
-    if (key !== "expenses") p.set("tab", key);
+    if (key !== DEFAULT_TAB) p.set("tab", key);
     const q = p.toString();
     return `/dashboard/expenses${q ? `?${q}` : ""}`;
   }
 
   let body;
-  if (tab === "files") {
+  if (tab === "txns") {
+    const { start, next } = monthRange(month);
+    const { data: txns, error } = await supabase
+      .from("bank_transactions")
+      .select("*")
+      .eq("building_id", buildingId)
+      .gte("txn_date", start)
+      .lt("txn_date", next)
+      .order("txn_at", { ascending: true });
+
+    // 연결 후보 지출: 이번 달 앞뒤 7일까지 + 이미 연결된 지출
+    const { data: nearExpenses } = await supabase
+      .from("building_expenses")
+      .select("*")
+      .eq("building_id", buildingId)
+      .gte("expense_date", addDays(start, -7))
+      .lt("expense_date", addDays(next, 7))
+      .order("expense_date", { ascending: true });
+    const linkedIds = Array.from(new Set((txns || []).map((t) => t.expense_id).filter(Boolean)));
+    const known = new Set((nearExpenses || []).map((e) => e.id));
+    const missing = linkedIds.filter((id) => !known.has(id));
+    const { data: extra } = missing.length
+      ? await supabase.from("building_expenses").select("*").in("id", missing)
+      : { data: [] };
+    const allExpenses = [...(nearExpenses || []), ...(extra || [])];
+
+    // 다른 달 거래에 이미 연결된 지출은 자동 연결 후보에서 제외
+    const expIds = allExpenses.map((e) => e.id);
+    const { data: linkedRows } = expIds.length
+      ? await supabase.from("bank_transactions").select("expense_id").in("expense_id", expIds)
+      : { data: [] };
+
+    const { data: receipts } = expIds.length
+      ? await supabase.from("expense_receipts").select("*").in("expense_id", expIds).order("created_at", { ascending: true })
+      : { data: [] };
+    const receiptsByExpense = {};
+    (receipts || []).forEach((r) => {
+      (receiptsByExpense[r.expense_id] = receiptsByExpense[r.expense_id] || []).push(r);
+    });
+
+    body = (
+      <BankTransactionsManager
+        buildingId={buildingId}
+        month={month}
+        txns={txns || []}
+        expenses={allExpenses}
+        receiptsByExpense={receiptsByExpense}
+        linkedExpenseIds={Array.from(new Set((linkedRows || []).map((r) => r.expense_id)))}
+        canManage={canManage}
+        setupNeeded={!!error}
+      />
+    );
+  } else if (tab === "files") {
     const { data: statements } = await supabase
       .from("bank_statements")
       .select("*")
