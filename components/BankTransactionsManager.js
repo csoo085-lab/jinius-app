@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { parseBankFile, dedupKey } from "@/lib/bankParser";
 import { ExpenseModal, won, shiftMonth, dateLabel, evidenceOk } from "@/components/ExpensesManager";
 import { matchRecurring, periodLabel, normPayer, unitLabel } from "@/lib/recurring";
+import { findTransfers, isTransferItem } from "@/lib/transfers";
 import MonthPick from "@/components/MonthPick";
 
 const MATCH_DAYS = 7; // 출금일과 지출일이 이 날짜 안이면 같은 건으로 자동 연결
@@ -208,7 +209,10 @@ export default function BankTransactionsManager({
   // ---------- 계산 ----------
   const inSum = txns.filter((t) => t.direction === "입금").reduce((s, t) => s + Number(t.amount), 0);
   const outSum = txns.filter((t) => t.direction === "출금").reduce((s, t) => s + Number(t.amount), 0);
-  const status = (t) => (t.direction === "입금" ? "입금" : t.expense_id ? "완료" : t.receipt_exempt ? "불필요" : "필요");
+  // 내 통장 간 이체 (두 통장 내역에서 짝지어짐) 또는 '통장 이체'로 등록한 고정지출 → 증빙 필요 없음
+  const xfer = findTransfers(txns);
+  const isXfer = (t) => !!xfer[t.id] || (t.direction === "출금" && !t.expense_id && isTransferItem(matchRecurring(t, recurring)));
+  const status = (t) => (t.direction === "입금" ? "입금" : t.expense_id ? "완료" : isXfer(t) ? "이체" : t.receipt_exempt ? "불필요" : "필요");
   const needList = txns.filter((t) => status(t) === "필요");
   const shown = txns.filter((t) =>
     filter === "전체" ? true : filter === "증빙 필요" ? status(t) === "필요" : t.direction === filter);
@@ -323,7 +327,14 @@ export default function BankTransactionsManager({
                       </div>
                     </div>
 
-                    {t.direction === "입금" && unitsReady && (units.length > 0 || canManage) && (
+                    {isXfer(t) && (
+                      <div className="mt-2 ml-12">
+                        <span className="tag py-1 px-2.5 text-accent border-accent/40">
+                          ↔ 통장 간 이체{xfer[t.id] ? (t.direction === "출금" ? ` → ${xfer[t.id].to}` : ` ← ${xfer[t.id].from}`) : ""} · 증빙 불필요
+                        </span>
+                      </div>
+                    )}
+                    {t.direction === "입금" && !isXfer(t) && unitsReady && (units.length > 0 || canManage) && (
                       <div className="mt-2 ml-12 flex flex-wrap items-center gap-1.5">
                         {canManage ? (
                           units.length ? (
@@ -341,7 +352,7 @@ export default function BankTransactionsManager({
                       </div>
                     )}
 
-                    {t.direction === "출금" && (
+                    {t.direction === "출금" && !isXfer(t) && (
                       <div className="mt-2 ml-12 flex flex-wrap items-center gap-1.5">
                         {(() => { const rc = matchRecurring(t, recurring); return rc ? <span className="tag py-1 px-2.5 text-accent border-accent/40">🔁 {rc.name} {periodLabel(rc, month)}</span> : null; })()}
                         {st === "완료" && (
