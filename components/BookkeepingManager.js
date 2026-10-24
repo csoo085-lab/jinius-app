@@ -10,6 +10,7 @@ import {
   parseAccountsFile, leafAccounts, suggestBankAccount, buildJournal, accountTotals, rollupTotals, balanceOf,
 } from "@/lib/accounts";
 import { won, shiftMonth } from "@/components/ExpensesManager";
+import RecurringExpenses from "@/components/RecurringExpenses";
 
 const NAVY = "#1f2a44";
 const REPORTS = [
@@ -29,6 +30,7 @@ function chunk(arr, n) {
 
 export default function BookkeepingManager({
   buildingId, buildingName, month, settings, accounts, txns, expenses, canManage, setupNeeded,
+  recurring = [], recurringReady = true,
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -60,8 +62,8 @@ export default function BookkeepingManager({
 
   // ---------- 분개 (1월~이번 달) ----------
   const journalAll = useMemo(() => (enabled ? buildJournal({
-    accounts, txns, expenses, bankMap: settings.bankMap || {}, cashCode: settings.cashCode, cardCode: settings.cardCode,
-  }) : []), [enabled, accounts, txns, expenses, settings]);
+    accounts, txns, expenses, bankMap: settings.bankMap || {}, cashCode: settings.cashCode, cardCode: settings.cardCode, recurring,
+  }) : []), [enabled, accounts, txns, expenses, settings, recurring]);
   const journal = useMemo(() => {
     const list = journalAll.filter((e) => inMonth(e.date));
     list.forEach((e, i) => { e.mno = i + 1; });
@@ -166,6 +168,9 @@ export default function BookkeepingManager({
             </div>
           )}
         </div>
+
+        <RecurringExpenses buildingId={buildingId} month={month} items={recurring} txns={txns} accounts={enabled ? accounts : []}
+          canManage={canManage} ready={recurringReady} />
 
         {!enabled ? (
           <CashbookTable rows={cashbook} />
