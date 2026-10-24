@@ -69,6 +69,9 @@ export const DOC_TYPES = [
 const LEGACY_DOC = { "작업완료 사진": "작업 후 사진" };
 export const normDoc = (t) => LEGACY_DOC[t] || t || "기타";
 const REQUIRED_TYPES = DOC_TYPES.filter((d) => d.required).map((d) => d.key);
+// 회의록을 연결문서로 가져올 수 있는 증빙 종류
+const MINUTE_LINKABLE = ["관리인 결재", "관리위원회 의결서", "관리단집회 결의서", "요청·지적사항", "보고서"];
+const MINUTE_PREF = { "관리위원회 의결서": "관리위원회", "관리단집회 결의서": "관리단집회" };
 const FILE_ACCEPT = "image/*,application/pdf,.xls,.xlsx,.xlsm,.csv,.hwp,.hwpx,.doc,.docx,.ppt,.pptx";
 
 const manwon = (n) => (n % 10000 === 0 ? `${(n / 10000).toLocaleString("ko-KR")}만 원` : `${Number(n).toLocaleString("ko-KR")}원`);
@@ -171,7 +174,7 @@ const reviewTone = (s) => (s === "정상" ? "good" : s === "미흡" ? "bad" : "m
 
 export default function ExpensesManager({
   buildingName, buildingId, month, expenses, receiptsByExpense, txnByExpense = {}, canManage, setupNeeded, embedded = false,
-  thresholds = DEFAULT_APPROVAL,
+  thresholds = DEFAULT_APPROVAL, minutes = [],
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -184,7 +187,7 @@ export default function ExpensesManager({
 
   // 출력: 영수증 사진 주소를 받아 모두 불러온 뒤 인쇄 창을 띄움
   async function handlePrint() {
-    const all = expenses.flatMap((e) => receiptsByExpense[e.id] || []);
+    const all = expenses.flatMap((e) => receiptsByExpense[e.id] || []).filter((r) => r.storage_path);
     if (!all.length) { setPrintUrls({}); return; }
     setPreparing(true);
     const supabase = createClient();
@@ -460,6 +463,7 @@ export default function ExpensesManager({
           receipts={editing === "new" ? [] : receiptsByExpense[editing.id] || []}
           txn={editing === "new" ? null : txnByExpense[editing.id]}
           thresholds={thresholds}
+          minutes={minutes}
           canManage={canManage}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); router.refresh(); }}
@@ -723,8 +727,8 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
           )}
           {ap.files.length > 0 && (
             <div className="mt-3 text-[9pt]">
-              <div className="font-semibold mb-1">사진이 아닌 증빙 파일 (앱에서 확인)</div>
-              {ap.files.map((r) => <div key={r.id}>· [{normDoc(r.doc_type)}] {r.file_name}</div>)}
+              <div className="font-semibold mb-1">사진이 아닌 증빙 파일·연결 회의록 (앱에서 확인)</div>
+              {ap.files.map((r) => <div key={r.id}>· [{normDoc(r.doc_type)}] {r.minute_id ? `회의록 연결 — ${r.file_name}` : r.file_name}</div>)}
             </div>
           )}
         </PrintPage>
@@ -734,7 +738,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
 }
 
 // prefill: 통장 거래에서 [지출로 등록]을 눌렀을 때 미리 채울 값 { expense_date, amount, description, vendor }
-export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, onClose, onSaved, prefill, thresholds = DEFAULT_APPROVAL }) {
+export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, onClose, onSaved, prefill, thresholds = DEFAULT_APPROVAL, minutes = [] }) {
   const supabase = createClient();
   const isEdit = !!expense;
   const readOnly = !canManage;
@@ -759,15 +763,18 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   const [viewer, setViewer] = useState(null);
   const [dragType, setDragType] = useState(null); // 끌어다 놓는 중인 칸
   const [dragAny, setDragAny] = useState(false);
+  const [newLinks, setNewLinks] = useState([]); // 새로 연결할 회의록 [{ minute_id, docType, title }]
+  const [pickerFor, setPickerFor] = useState(null); // 회의록 고르기 창을 연 증빙 종류
 
-  // 기존 증빙 미리보기 링크 (10분 유효)
+  // 기존 증빙 미리보기 링크 (10분 유효) — 회의록 연결은 파일이 아니라 제외
   useEffect(() => {
-    if (!existing.length) return;
+    const files = existing.filter((r) => r.storage_path);
+    if (!files.length) return;
     supabase.storage.from("attachments")
-      .createSignedUrls(existing.map((r) => r.storage_path), 600)
+      .createSignedUrls(files.map((r) => r.storage_path), 600)
       .then(({ data }) => {
         const map = {};
-        (data || []).forEach((d, i) => { if (d.signedUrl) map[existing[i].id] = d.signedUrl; });
+        (data || []).forEach((d, i) => { if (d.signedUrl) map[files[i].id] = d.signedUrl; });
         setUrls(map);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -779,7 +786,19 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   // 칸별로 이미 있는 파일 수 (기존 + 새로 추가)
   const countOf = (docType) =>
     existing.filter((r) => (typeChanges[r.id] || r.doc_type) === docType).length +
-    newFiles.filter((n) => n.docType === docType).length;
+    newFiles.filter((n) => n.docType === docType).length +
+    newLinks.filter((n) => n.docType === docType).length;
+
+  // 회의록을 연결문서로 추가
+  function addMinuteLink(docType, m) {
+    const st = DOC_TYPES.find((d) => d.key === docType)?.stage;
+    if (liveProc.stages.find((s) => s.no === st && s.locked)) { alert("앞 단계를 먼저 완료해주세요."); return; }
+    const already = existing.some((r) => r.minute_id === m.id && (typeChanges[r.id] || r.doc_type) === docType)
+      || newLinks.some((n) => n.minute_id === m.id && n.docType === docType);
+    if (already) { alert("이미 연결된 회의록입니다."); return; }
+    setNewLinks((p) => [...p, { minute_id: m.id, docType, title: m.title + (m.meeting_date ? ` (${m.meeting_date})` : "") }]);
+    setPickerFor(null);
+  }
 
   function addFilesOf(docType, files) {
     let picked = Array.from(files || []);
@@ -812,8 +831,8 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   }
 
   async function removeExisting(r) {
-    if (!confirm("이 증빙을 삭제할까요?")) return;
-    await supabase.storage.from("attachments").remove([r.storage_path]);
+    if (!confirm(r.minute_id ? "이 회의록 연결을 해제할까요? (회의록 자체는 지워지지 않습니다)" : "이 증빙을 삭제할까요?")) return;
+    if (r.storage_path) await supabase.storage.from("attachments").remove([r.storage_path]);
     const { error } = await supabase.from("expense_receipts").delete().eq("id", r.id);
     if (error) { alert("삭제 실패: " + error.message); return; }
     setExisting((prev) => prev.filter((x) => x.id !== r.id));
@@ -823,6 +842,7 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   const currentDocs = [
     ...existing.map((r) => ({ doc_type: typeChanges[r.id] || r.doc_type })),
     ...newFiles.map((n) => ({ doc_type: n.docType })),
+    ...newLinks.map((n) => ({ doc_type: n.docType })),
   ];
   const okNow = evidenceOk(currentDocs);
   const amtNum = Number(String(amount).replace(/[^\d]/g, "")) || 0;
@@ -864,6 +884,13 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
         expense_id: expenseId, building_id: buildingId, file_name: displayName, storage_path: path, size_bytes: size, doc_type: docType,
       });
     }
+    for (const l of newLinks) {
+      const { error: lErr } = await supabase.from("expense_receipts").insert({
+        expense_id: expenseId, building_id: buildingId, file_name: l.title, storage_path: "", size_bytes: 0,
+        doc_type: l.docType, minute_id: l.minute_id,
+      });
+      if (lErr) alert("회의록 연결 실패: " + lErr.message);
+    }
     setSaving(false);
     onSaved(expenseId);
   }
@@ -871,7 +898,8 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   async function remove() {
     if (!confirm("이 지출내역을 삭제할까요? 첨부된 증빙도 함께 삭제됩니다.")) return;
     setSaving(true);
-    if (existing.length) await supabase.storage.from("attachments").remove(existing.map((r) => r.storage_path));
+    const paths = existing.map((r) => r.storage_path).filter(Boolean);
+    if (paths.length) await supabase.storage.from("attachments").remove(paths);
     const { error } = await supabase.from("building_expenses").delete().eq("id", expense.id);
     setSaving(false);
     if (error) { alert("삭제 실패: " + error.message); return; }
@@ -912,9 +940,12 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   function renderDocRow(d, locked) {
     const ex = existing.filter((r) => (typeChanges[r.id] || r.doc_type) === d.key);
     const nw = newFiles.map((n, i) => ({ ...n, i })).filter((n) => n.docType === d.key);
-    const has = ex.length + nw.length > 0;
+    const nl = newLinks.map((n, i) => ({ ...n, i })).filter((n) => n.docType === d.key);
+    const total = ex.length + nw.length + nl.length;
+    const has = total > 0;
     if (readOnly && !has) return null;
-    const full = d.max && ex.length + nw.length >= d.max;
+    const full = d.max && total >= d.max;
+    const linkable = MINUTE_LINKABLE.includes(d.key);
     return (
       <div key={d.key} {...(locked ? {} : rowDrop(d.key))}
         className={"px-3 py-2 transition-colors " + (dragType === d.key ? "bg-accent/10" : dragAny && !locked ? "bg-surface2/60" : "")}>
@@ -925,11 +956,17 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
             {d.hint && <span className="text-[11px] font-normal text-inkDim ml-1">{d.hint}</span>}
           </span>
           {d.required && <span className="text-[11px] font-semibold text-accent">선택필수</span>}
-          {has && <span className="text-[11px] text-inkDim">{ex.length + nw.length}{d.max ? ` / ${d.max}` : ""}개</span>}
+          {has && <span className="text-[11px] text-inkDim">{total}{d.max ? ` / ${d.max}` : ""}개</span>}
           {!readOnly && !full && (locked ? (
             <span className="text-[11px] text-inkDim">🔒</span>
           ) : (
             <>
+              {linkable && (
+                <button type="button" onClick={() => setPickerFor(d.key)} title="회의록 연결"
+                  className="h-8 px-2 rounded-lg bg-accent/10 text-accent text-[11px] font-semibold flex items-center gap-1 hover:bg-accent/20">
+                  📋 회의록
+                </button>
+              )}
               <label className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center cursor-pointer hover:bg-border" title="사진 찍기">
                 📷
                 <input type="file" accept="image/*" capture="environment" className="hidden"
@@ -945,7 +982,14 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
         </div>
         {has && (
           <div className="flex gap-2 overflow-x-auto mt-2 pb-1">
-            {ex.map((r) => (
+            {ex.filter((r) => r.minute_id).map((r) => (
+              <MinuteCard key={r.id} title={r.file_name} href={`/dashboard/meeting-minutes?building=${buildingId}#m-${r.minute_id}`}
+                onRemove={readOnly ? null : () => removeExisting(r)} />
+            ))}
+            {nl.map((n) => (
+              <MinuteCard key={"l" + n.i} title={n.title} isNew onRemove={() => setNewLinks((p) => p.filter((_, j) => j !== n.i))} />
+            ))}
+            {ex.filter((r) => !r.minute_id).map((r) => (
               <Thumb key={r.id} name={r.file_name} src={urls[r.id]} onOpen={() => setViewer(urls[r.id])}
                 onRemove={readOnly ? null : () => removeExisting(r)}
                 typeSelect={!readOnly && (
@@ -1153,6 +1197,75 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
           <img src={viewer} alt="증빙" className="max-w-full max-h-full object-contain rounded-lg" />
         </div>
       )}
+
+      {pickerFor && (
+        <MinutePicker docType={pickerFor} minutes={minutes} buildingId={buildingId}
+          onPick={(m) => addMinuteLink(pickerFor, m)} onClose={() => setPickerFor(null)} />
+      )}
+    </div>
+  );
+}
+
+// 연결된 회의록 카드 (증빙 칸 안)
+function MinuteCard({ title, href, onRemove, isNew }) {
+  const body = (
+    <>
+      <span className="text-xl">📋</span>
+      <span className="text-[10px] leading-tight line-clamp-3 w-full">{title}</span>
+    </>
+  );
+  return (
+    <div className={"relative w-28 h-20 rounded-lg bg-accent/10 text-accent overflow-hidden shrink-0 " + (isNew ? "ring-2 ring-accent/50" : "")}>
+      {href ? (
+        <a href={href} target="_blank" rel="noopener noreferrer" className="w-full h-full flex flex-col items-center justify-center gap-0.5 p-1.5 text-center">{body}</a>
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-0.5 p-1.5 text-center">{body}</div>
+      )}
+      {onRemove && (
+        <button type="button" onClick={onRemove} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-[10px]">✕</button>
+      )}
+    </div>
+  );
+}
+
+// 회의록 고르기 창: 지출 관련 회의가 먼저, 증빙 종류에 맞는 회의(관리위원회·관리단집회)가 위로
+function MinutePicker({ docType, minutes, buildingId, onPick, onClose }) {
+  const [all, setAll] = useState(false);
+  const pref = MINUTE_PREF[docType];
+  const score = (m) => (m.expense_related ? 0 : 2) + (pref && m.meeting_type === pref ? 0 : 1);
+  const list = [...minutes]
+    .filter((m) => all || m.expense_related)
+    .sort((a, b) => score(a) - score(b) || (b.meeting_date || "").localeCompare(a.meeting_date || ""));
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={(e) => { e.stopPropagation(); onClose(); }}>
+      <div className="bg-surface w-full sm:max-w-md max-h-[80vh] overflow-y-auto p-5 rounded-t-3xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+        <div className="font-bold text-lg">회의록 연결</div>
+        <div className="text-sm text-inkDim mb-3">[{docType}] 칸에 연결할 회의록을 고르세요.</div>
+        <div className="flex gap-1.5 mb-3">
+          <button className={"tag py-1 px-3 " + (!all ? "bg-ink text-white border-ink" : "bg-surface")} onClick={() => setAll(false)}>지출 관련 회의</button>
+          <button className={"tag py-1 px-3 " + (all ? "bg-ink text-white border-ink" : "bg-surface")} onClick={() => setAll(true)}>전체 회의록</button>
+        </div>
+        {list.length === 0 ? (
+          <div className="text-sm text-inkDim text-center py-8">
+            {all ? "등록된 회의록이 없습니다." : "'지출 관련 회의'로 표시된 회의록이 없습니다."}
+            <div className="mt-2"><a className="text-accent underline" href={`/dashboard/meeting-minutes?building=${buildingId}`} target="_blank" rel="noopener noreferrer">회의록 작성하러 가기</a></div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {list.map((m) => (
+              <button key={m.id} onClick={() => onPick(m)}
+                className="text-left rounded-xl border border-border px-3 py-2.5 hover:bg-surface2">
+                <div className="flex items-center gap-1.5">
+                  {m.meeting_type && <span className={"tag py-0 text-[10px] " + (pref && m.meeting_type === pref ? "text-accent border-accent/40" : "")}>{m.meeting_type}</span>}
+                  <span className="font-semibold text-sm truncate">{m.title}</span>
+                </div>
+                <div className="text-xs text-inkDim mt-0.5">{m.meeting_date || "날짜 없음"}{m.expense_related ? " · 지출 관련" : ""}</div>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="text-right mt-4"><button className="btn-ghost" onClick={onClose}>닫기</button></div>
+      </div>
     </div>
   );
 }
