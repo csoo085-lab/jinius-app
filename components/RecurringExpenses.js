@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { recurringStatus, recurringCandidates, periodLabel } from "@/lib/recurring";
 import { leafAccounts } from "@/lib/accounts";
 import { won, EXPENSE_CATEGORIES } from "@/components/ExpensesManager";
+import { TRANSFER_CATEGORY, isTransferItem } from "@/lib/transfers";
 
 const md = (iso) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "");
 const TONE = {
@@ -54,7 +55,7 @@ export default function RecurringExpenses({ buildingId, month, items, txns, acco
             <div key={item.id} className="py-2.5 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm truncate">
-                  {item.name} <span className="text-xs text-inkDim font-normal">{periodLabel(item, month)}{item.pay_day ? ` · 매월 ${item.pay_day}일경` : ""}</span>
+                  {isTransferItem(item) && <span className="text-accent">↔ </span>}{item.name} <span className="text-xs text-inkDim font-normal">{periodLabel(item, month)}{item.pay_day ? ` · 매월 ${item.pay_day}일경` : ""}</span>
                 </div>
                 <div className="text-xs text-inkDim truncate">
                   {list.length
@@ -68,7 +69,7 @@ export default function RecurringExpenses({ buildingId, month, items, txns, acco
                   <div className="text-[11px] text-inkDim">예상 {won(item.amount)}원과 다름</div>
                 )}
               </div>
-              <span className={"tag shrink-0 " + TONE[status]}>{status}</span>
+              <span className={"tag shrink-0 " + TONE[status]}>{isTransferItem(item) ? ({ 지급: "이체 완료", 미지급: "미이체", 예정: "예정" }[status]) : status}</span>
             </div>
           ))}
         </div>
@@ -144,6 +145,7 @@ function RecurringEditor({ buildingId, items, txns, accounts, onClose }) {
                   <Field label="분류">
                     <select value={i.category} onChange={(e) => set(k, "category", e.target.value)}>
                       {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                      <option value={TRANSFER_CATEGORY}>{TRANSFER_CATEGORY} (내 통장끼리 옮기기)</option>
                     </select>
                   </Field>
                   {leaves.length > 0 ? (
