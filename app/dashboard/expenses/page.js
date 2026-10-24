@@ -153,8 +153,20 @@ export default async function MoneyPage({ searchParams }) {
       (receiptsByExpense[r.expense_id] = receiptsByExpense[r.expense_id] || []).push(r);
     });
 
+    // 호실 목록 · 입금자명 기억 · 고정지출 (fixed_expenses_units.sql 실행 전이면 빈 값)
+    const { data: units } = await supabase.from("units").select("id, dong, ho").eq("building_id", buildingId);
+    const { data: payers } = canManage
+      ? await supabase.from("building_payer_units").select("payer, unit_id").eq("building_id", buildingId)
+      : { data: [] };
+    const { data: recurring, error: recErr } = await supabase.from("building_recurring_expenses").select("*")
+      .eq("building_id", buildingId).order("sort", { ascending: true });
+
     body = (
       <BankTransactionsManager
+        units={units || []}
+        payerMap={Object.fromEntries((payers || []).map((p) => [p.payer, p.unit_id]))}
+        recurring={recurring || []}
+        unitsReady={!recErr}
         buildingId={buildingId}
         month={month}
         txns={txns || []}
@@ -186,8 +198,12 @@ export default async function MoneyPage({ searchParams }) {
     // 카드·현금 지출은 올해 것만 장부에 들어감
     const expenses = [...(exps || []), ...(extra || [])]
       .filter((e) => (e.payment_method !== "카드" && e.payment_method !== "현금") || e.expense_date >= yearStart);
+    const { data: recurring, error: recErr } = await supabase.from("building_recurring_expenses").select("*")
+      .eq("building_id", buildingId).order("sort", { ascending: true });
     body = (
       <BookkeepingManager
+        recurring={recurring || []}
+        recurringReady={!recErr}
         buildingId={buildingId}
         buildingName={buildingName}
         month={month}
