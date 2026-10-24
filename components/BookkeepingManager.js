@@ -11,6 +11,7 @@ import {
 } from "@/lib/accounts";
 import { won, shiftMonth } from "@/components/ExpensesManager";
 import RecurringExpenses from "@/components/RecurringExpenses";
+import MonthPick from "@/components/MonthPick";
 
 const NAVY = "#1f2a44";
 const REPORTS = [
@@ -152,7 +153,7 @@ export default function BookkeepingManager({
         <div className="card mb-4">
           <div className="flex items-center justify-between mb-4">
             <button className="btn-ghost text-xs" onClick={() => goMonth(shiftMonth(month, -1))}>‹ 이전</button>
-            <div className="font-bold text-base">{y}년 {Number(m)}월</div>
+            <div className="font-bold text-base"><MonthPick month={month} onChange={goMonth}>{y}년 {Number(m)}월</MonthPick></div>
             <button className="btn-ghost text-xs" onClick={() => goMonth(shiftMonth(month, 1))}>다음 ›</button>
           </div>
           <div className="grid grid-cols-3 gap-3 text-center">
