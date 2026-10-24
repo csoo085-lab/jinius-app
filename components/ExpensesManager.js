@@ -16,8 +16,41 @@ const CATEGORY_COLORS = {
 };
 const PAYMENT_METHODS = ["계좌이체", "카드", "현금", "자동이체"];
 
+// 증빙 종류 (RCMS 방식). required: "선택필수" 묶음 중 하나는 반드시 있어야 '정상'
+export const DOC_TYPES = [
+  { key: "세금계산서", required: true },
+  { key: "카드매출전표", required: true },
+  { key: "현금영수증·간이영수증", required: true },
+  { key: "거래명세서" },
+  { key: "견적서" },
+  { key: "계약서" },
+  { key: "작업완료 사진", hint: "작업 전·후 (수선 시 권장)" },
+  { key: "이체확인증" },
+  { key: "기타" },
+];
+const REQUIRED_TYPES = DOC_TYPES.filter((d) => d.required).map((d) => d.key);
+const FILE_ACCEPT = "image/*,application/pdf,.xls,.xlsx,.xlsm,.csv,.hwp,.hwpx,.doc,.docx,.ppt,.pptx";
+
+// 증빙파일 판정: 선택필수(세금계산서·카드매출전표·현금영수증) 중 하나라도 있으면 정상
+export const evidenceOk = (receipts) => (receipts || []).some((r) => REQUIRED_TYPES.includes(r.doc_type));
+// 증빙구분 (RCMS의 '증빙구분' 열)
+export function evidenceType(receipts) {
+  const types = (receipts || []).map((r) => r.doc_type);
+  if (types.includes("세금계산서")) return "세금계산서";
+  if (types.includes("카드매출전표")) return "카드";
+  if (types.includes("현금영수증·간이영수증")) return "현금영수증";
+  return types.length ? "기타증빙" : "-";
+}
+// 이체상태: 통장 출금과 연결되면 집행 완료 (카드·현금 결제는 통장 확인 대상 아님)
+export function transferStatus(expense, txn) {
+  if (txn) return "집행 완료";
+  if (expense.payment_method === "카드" || expense.payment_method === "현금") return "-";
+  return "미확인";
+}
+
 const won = (n) => (Number(n) || 0).toLocaleString("ko-KR");
 const todayKST = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+const md = (iso) => (iso ? iso.slice(5).replace("-", ".") : "-");
 
 function shiftMonth(month, delta) {
   const [y, m] = month.split("-").map(Number);
@@ -33,7 +66,22 @@ function dateLabel(iso) {
 
 export { won, CATEGORY_COLORS, shiftMonth, dateLabel };
 
-export default function ExpensesManager({ buildingName, buildingId, month, expenses, receiptsByExpense, canManage, setupNeeded, embedded = false }) {
+// 작은 상태 배지
+function Pill({ tone, children }) {
+  const cls = {
+    ok: "bg-accent text-white",
+    warn: "bg-warn/15 text-warn",
+    bad: "bg-danger/10 text-danger",
+    good: "bg-ok/10 text-ok",
+    mute: "bg-surface2 text-inkDim",
+  }[tone];
+  return <span className={"inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap " + cls}>{children}</span>;
+}
+const reviewTone = (s) => (s === "정상" ? "good" : s === "미흡" ? "bad" : "mute");
+
+export default function ExpensesManager({
+  buildingName, buildingId, month, expenses, receiptsByExpense, txnByExpense = {}, canManage, setupNeeded, embedded = false,
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -80,15 +128,28 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
     expenses.forEach((e) => { map[e.category] = (map[e.category] || 0) + (Number(e.amount) || 0); });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [expenses]);
-  const noReceipt = expenses.filter((e) => !(receiptsByExpense[e.id] || []).length).length;
 
-  const shown = filter === "전체" ? expenses : expenses.filter((e) => e.category === filter);
-  const byDate = [];
-  shown.forEach((e) => {
-    const last = byDate[byDate.length - 1];
-    if (last && last.date === e.expense_date) last.items.push(e);
-    else byDate.push({ date: e.expense_date, items: [e] });
-  });
+  const evOk = (e) => evidenceOk(receiptsByExpense[e.id]);
+  const trSt = (e) => transferStatus(e, txnByExpense[e.id]);
+  const counts = {
+    "증빙 미흡": expenses.filter((e) => !evOk(e)).length,
+    "이체 미확인": expenses.filter((e) => trSt(e) === "미확인").length,
+    "점검 미흡": expenses.filter((e) => e.review_status === "미흡").length,
+    "점검 전": expenses.filter((e) => (e.review_status || "미확인") === "미확인").length,
+  };
+  const pass = (e) => {
+    if (filter === "전체") return true;
+    if (filter === "증빙 미흡") return !evOk(e);
+    if (filter === "이체 미확인") return trSt(e) === "미확인";
+    if (filter === "점검 미흡") return e.review_status === "미흡";
+    if (filter === "점검 전") return (e.review_status || "미확인") === "미확인";
+    return e.category === filter;
+  };
+  // 오래된 순으로 번호를 매김 (출력물 No와 같음)
+  const ordered = [...expenses].sort((a, b) =>
+    a.expense_date === b.expense_date ? (a.created_at || "").localeCompare(b.created_at || "") : a.expense_date.localeCompare(b.expense_date));
+  const noOf = Object.fromEntries(ordered.map((e, i) => [e.id, i + 1]));
+  const shown = ordered.filter(pass).reverse(); // 화면은 최신이 위
 
   const [y, m] = month.split("-");
 
@@ -108,7 +169,7 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
       <div className="print:hidden">
       <div className="flex items-end justify-between gap-3 mb-5">
         {embedded ? (
-          <div className="font-semibold text-sm text-inkDim">지출 등록·영수증</div>
+          <div className="font-semibold text-sm text-inkDim">지출 증빙 내역</div>
         ) : (
           <div className="min-w-0">
             <div className="text-sm text-inkDim font-medium truncate">{buildingName}</div>
@@ -134,9 +195,18 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
         </div>
         <div className="text-sm text-inkDim">이번 달 지출 합계</div>
         <div className="text-3xl font-bold tracking-tight mt-0.5">{won(total)}<span className="text-lg font-semibold ml-0.5">원</span></div>
-        <div className="text-xs text-inkDim mt-1">
-          {expenses.length}건
-          {canManage && noReceipt > 0 && <span className="text-warn font-semibold"> · 증빙 미첨부 {noReceipt}건</span>}
+        <div className="text-xs text-inkDim mt-1">총 {expenses.length}건</div>
+
+        {/* 상태 요약 (누르면 걸러보기) */}
+        <div className="flex flex-wrap gap-1.5 mt-4">
+          <button onClick={() => setFilter("전체")}
+            className={"tag py-1 px-3 " + (filter === "전체" ? "bg-ink text-white border-ink" : "bg-surface")}>전체 {expenses.length}</button>
+          {Object.entries(counts).map(([k, v]) => (
+            <button key={k} onClick={() => setFilter(filter === k ? "전체" : k)}
+              className={"tag py-1 px-3 " + (filter === k ? "bg-ink text-white border-ink" : v ? "bg-surface text-warn border-warn/40" : "bg-surface text-inkDim")}>
+              {k} {v}
+            </button>
+          ))}
         </div>
 
         {byCategory.length > 0 && (
@@ -147,8 +217,6 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
               ))}
             </div>
             <div className="flex flex-wrap gap-1.5 mt-3">
-              <button onClick={() => setFilter("전체")}
-                className={"tag py-1 px-3 " + (filter === "전체" ? "bg-ink text-white border-ink" : "bg-surface")}>전체</button>
               {byCategory.map(([c, v]) => (
                 <button key={c} onClick={() => setFilter(filter === c ? "전체" : c)}
                   className={"tag py-1 px-3 " + (filter === c ? "bg-ink text-white border-ink" : "bg-surface")}>
@@ -161,27 +229,80 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
         )}
       </div>
 
-      {/* 날짜별 목록 */}
+      {/* 목록 */}
       {shown.length === 0 ? (
         <div className="card text-sm text-inkDim text-center py-10">
-          {expenses.length === 0 ? "이번 달 등록된 지출이 없습니다." : "선택한 분류의 지출이 없습니다."}
+          {expenses.length === 0 ? "이번 달 등록된 지출이 없습니다." : "해당하는 지출이 없습니다."}
           {canManage && expenses.length === 0 && (
             <div className="mt-1 text-xs">오른쪽 위 [+ 지출 등록]을 눌러 추가하세요.</div>
           )}
         </div>
       ) : (
-        <div className="card p-0 sm:p-0 md:p-0 overflow-hidden">
-          {byDate.map((g) => (
-            <div key={g.date}>
-              <div className="px-4 md:px-6 pt-4 pb-1 text-xs font-semibold text-inkDim flex justify-between">
-                <span>{dateLabel(g.date)}</span>
-                <span>{won(g.items.reduce((s, e) => s + (Number(e.amount) || 0), 0))}원</span>
-              </div>
-              {g.items.map((e) => {
-                const rc = (receiptsByExpense[e.id] || []).length;
-                return (
-                  <button key={e.id} onClick={() => setEditing(e)}
-                    className="w-full flex items-center gap-3 px-4 md:px-6 py-3 text-left hover:bg-surface2 transition-colors">
+        <>
+          {/* PC: RCMS식 표 */}
+          <div className="card p-0 sm:p-0 md:p-0 hidden md:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b border-border">
+                  <th className="pl-5 w-10">No</th>
+                  <th>사용일자</th>
+                  <th>이체일자</th>
+                  <th>증빙구분</th>
+                  <th>분류</th>
+                  <th>내용 · 거래처</th>
+                  <th className="text-right">금액(원)</th>
+                  <th className="text-center">증빙파일</th>
+                  <th className="text-center">이체상태</th>
+                  <th className="text-center pr-5">점검</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((e) => {
+                  const rcs = receiptsByExpense[e.id] || [];
+                  const tx = txnByExpense[e.id];
+                  const tr = trSt(e);
+                  return (
+                    <tr key={e.id} onClick={() => setEditing(e)} className="border-b border-border cursor-pointer hover:bg-surface2">
+                      <td className="pl-5 text-inkDim">{noOf[e.id]}</td>
+                      <td className="whitespace-nowrap">{md(e.expense_date)}</td>
+                      <td className="whitespace-nowrap text-inkDim">{tx ? md(tx.txn_date) : "-"}</td>
+                      <td className="whitespace-nowrap">{evidenceType(rcs)}</td>
+                      <td className="whitespace-nowrap">
+                        <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: CATEGORY_COLORS[e.category] || "#94A3B8" }} />
+                        {e.category}
+                      </td>
+                      <td className="min-w-[10rem]">
+                        <div className="font-semibold truncate max-w-[16rem]">{e.description || "-"}</div>
+                        <div className="text-xs text-inkDim truncate max-w-[16rem]">{e.vendor || "-"}{e.payment_method ? ` · ${e.payment_method}` : ""}</div>
+                      </td>
+                      <td className="text-right font-semibold whitespace-nowrap">{won(e.amount)}</td>
+                      <td className="text-center">
+                        <Pill tone={evidenceOk(rcs) ? "ok" : "warn"}>{evidenceOk(rcs) ? "정상" : "미흡"}</Pill>
+                        {rcs.length > 0 && <div className="text-[10px] text-inkDim mt-0.5">{rcs.length}개 파일</div>}
+                      </td>
+                      <td className="text-center">
+                        <Pill tone={tr === "집행 완료" ? "good" : tr === "미확인" ? "warn" : "mute"}>{tr}</Pill>
+                      </td>
+                      <td className="text-center pr-5">
+                        <Pill tone={reviewTone(e.review_status || "미확인")}>{e.review_status || "미확인"}</Pill>
+                        {e.review_memo && <div className="text-[10px] text-inkDim mt-0.5 truncate max-w-[6rem] mx-auto" title={e.review_memo}>{e.review_memo}</div>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 휴대폰: 카드 */}
+          <div className="card p-0 sm:p-0 overflow-hidden md:hidden">
+            {shown.map((e) => {
+              const rcs = receiptsByExpense[e.id] || [];
+              const tr = trSt(e);
+              return (
+                <button key={e.id} onClick={() => setEditing(e)}
+                  className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-surface2">
+                  <div className="flex items-center gap-3">
                     <span className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white text-xs font-bold"
                       style={{ backgroundColor: CATEGORY_COLORS[e.category] || "#94A3B8" }}>
                       {(e.category || "기").slice(0, 2)}
@@ -189,21 +310,21 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
                     <span className="flex-1 min-w-0">
                       <span className="block font-semibold text-[15px] truncate">{e.description || e.category}</span>
                       <span className="block text-xs text-inkDim truncate">
-                        {[e.vendor, e.payment_method].filter(Boolean).join(" · ") || e.category}
+                        No.{noOf[e.id]} · {md(e.expense_date)} · {e.vendor || e.category}{evidenceType(rcs) !== "-" ? ` · ${evidenceType(rcs)}` : ""}
                       </span>
                     </span>
-                    <span className="text-right shrink-0">
-                      <span className="block font-bold text-[15px]">{won(e.amount)}원</span>
-                      <span className={"block text-[11px] " + (rc ? "text-ok" : "text-warn")}>
-                        {rc ? `📎 증빙 ${rc}` : "증빙 없음"}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
+                    <span className="font-bold text-[15px] shrink-0">{won(e.amount)}원</span>
+                  </div>
+                  <div className="flex gap-1.5 mt-2 ml-[3.25rem]">
+                    <Pill tone={evidenceOk(rcs) ? "ok" : "warn"}>증빙 {evidenceOk(rcs) ? "정상" : "미흡"}</Pill>
+                    {tr !== "-" && <Pill tone={tr === "집행 완료" ? "good" : "warn"}>{tr === "미확인" ? "이체 미확인" : tr}</Pill>}
+                    <Pill tone={reviewTone(e.review_status || "미확인")}>점검 {e.review_status || "미확인"}</Pill>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
 
       </div>
@@ -213,8 +334,9 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
         <PrintSheet
           buildingName={buildingName}
           month={month}
-          expenses={expenses}
+          expenses={ordered}
           receiptsByExpense={receiptsByExpense}
+          txnByExpense={txnByExpense}
           byCategory={byCategory}
           total={total}
           urls={printUrls}
@@ -227,6 +349,7 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
           buildingId={buildingId}
           expense={editing === "new" ? null : editing}
           receipts={editing === "new" ? [] : receiptsByExpense[editing.id] || []}
+          txn={editing === "new" ? null : txnByExpense[editing.id]}
           canManage={canManage}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); router.refresh(); }}
@@ -237,109 +360,211 @@ export default function ExpensesManager({ buildingName, buildingId, month, expen
 }
 
 const isImage = (name) => /\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(name || "");
+const docOrder = (t) => { const i = DOC_TYPES.findIndex((d) => d.key === t); return i < 0 ? 99 : i; };
 
-function PrintSheet({ buildingName, month, expenses, receiptsByExpense, byCategory, total, urls }) {
+// ---------- 월별 출력 (A4, 쪽 번호·머리말·꼬리말이 있는 문서 양식) ----------
+const NAVY = "#1f2a44";
+const PAGE_ROWS_FIRST = 13;  // 1쪽: 요약표·안내문이 있어 표 줄 수가 적음
+const PAGE_ROWS_NEXT = 22;   // 2쪽부터
+const IMGS_PER_PAGE = 4;     // 증빙 첨부: 한 쪽에 사진 4장(2×2)
+
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+function PrintPage({ title, right, page, pages, footLeft, footRight, children }) {
+  return (
+    <section className="flex flex-col break-after-page last:break-after-auto" style={{ height: "258mm", overflow: "hidden" }}>
+      <div className="flex items-end justify-between border-b-2 pb-2 mb-3" style={{ borderColor: NAVY }}>
+        <div className="text-[19pt] font-extrabold tracking-tight" style={{ color: NAVY }}>{title}</div>
+        <div className="text-[9pt] text-black/60 whitespace-nowrap">{right} · {page} / {pages}쪽</div>
+      </div>
+      <div className="flex-1 min-h-0">{children}</div>
+      <div className="flex items-center justify-between border-t pt-2 mt-2 text-[9pt]" style={{ borderColor: NAVY }}>
+        <div className="font-bold" style={{ color: NAVY }}>{footLeft}</div>
+        <div className="text-black/60">{footRight}</div>
+      </div>
+    </section>
+  );
+}
+
+function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExpense, byCategory, total, urls }) {
   const [y, m] = month.split("-");
-  const rows = [...expenses].sort((a, b) =>
-    a.expense_date === b.expense_date ? (a.created_at || "").localeCompare(b.created_at || "") : a.expense_date.localeCompare(b.expense_date));
-  const withReceipts = rows.map((e, i) => ({ e, no: i + 1, rcs: receiptsByExpense[e.id] || [] })).filter((x) => x.rcs.length);
+  const mm = Number(m);
+  const lastDay = new Date(Number(y), mm, 0).getDate();
+  const rows = expenses.map((e, i) => ({ e, no: i + 1 })); // 이미 오래된 순
   const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }).replaceAll("-", ". ");
-  const cell = "border border-black/40 px-2 py-1.5";
+
+  const okCnt = expenses.filter((e) => evidenceOk(receiptsByExpense[e.id])).length;
+  const trDone = expenses.filter((e) => transferStatus(e, txnByExpense[e.id]) === "집행 완료").length;
+  const trNeed = expenses.filter((e) => transferStatus(e, txnByExpense[e.id]) === "미확인").length;
+  const rvOk = expenses.filter((e) => e.review_status === "정상").length;
+  const rvBad = expenses.filter((e) => e.review_status === "미흡").length;
+
+  // 표 쪽 나누기
+  const tablePages = rows.length <= PAGE_ROWS_FIRST
+    ? [rows]
+    : [rows.slice(0, PAGE_ROWS_FIRST), ...chunk(rows.slice(PAGE_ROWS_FIRST), PAGE_ROWS_NEXT)];
+  // 증빙 첨부 쪽 나누기: 지출 한 건의 사진을 4장씩
+  const attachPages = [];
+  rows.forEach(({ e, no }) => {
+    const rcs = [...(receiptsByExpense[e.id] || [])].sort((a, b) => docOrder(a.doc_type) - docOrder(b.doc_type));
+    if (!rcs.length) return;
+    const imgs = rcs.filter((r) => isImage(r.file_name) && urls[r.storage_path]);
+    const files = rcs.filter((r) => !(isImage(r.file_name) && urls[r.storage_path]));
+    const groups = imgs.length ? chunk(imgs, IMGS_PER_PAGE) : [[]];
+    groups.forEach((g, gi) => attachPages.push({ e, no, imgs: g, files: gi === 0 ? files : [], part: groups.length > 1 ? `${gi + 1}/${groups.length}` : "" }));
+  });
+  const pages = tablePages.length + attachPages.length;
+  const right = `${buildingName} 관리단`;
+  const footRight = `${buildingName} 관리단 · 관리업체 지니어스 1551-9976`;
+  const th = "px-1.5 py-2 font-semibold text-white text-[8.5pt]";
+  const td = "px-1.5 py-[7px] border-b border-black/15 text-[8.5pt] whitespace-nowrap overflow-hidden text-ellipsis";
 
   return (
-    <div id="expense-print" className="hidden print:block text-black text-[11pt]">
-      <div className="text-center mb-5">
-        <div className="text-[18pt] font-bold">{buildingName} 지출내역서</div>
-        <div className="mt-1">{y}년 {Number(m)}월 (1일 ~ 말일)</div>
-      </div>
-
-      <table className="w-full border-collapse text-[10pt]">
-        <thead>
-          <tr className="bg-black/5">
-            <th className={cell + " w-8"}>No</th>
-            <th className={cell + " w-14"}>날짜</th>
-            <th className={cell}>내용</th>
-            <th className={cell + " w-20"}>분류</th>
-            <th className={cell + " w-24"}>거래처</th>
-            <th className={cell + " w-14"}>결제</th>
-            <th className={cell + " w-20 text-right"}>금액(원)</th>
-            <th className={cell + " w-10"}>증빙</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((e, i) => {
-            const rc = (receiptsByExpense[e.id] || []).length;
-            return (
-              <tr key={e.id} className="break-inside-avoid">
-                <td className={cell + " text-center"}>{i + 1}</td>
-                <td className={cell + " text-center"}>{e.expense_date.slice(5).replace("-", "/")}</td>
-                <td className={cell}>{e.description || "-"}</td>
-                <td className={cell}>{e.category}</td>
-                <td className={cell}>{e.vendor || "-"}</td>
-                <td className={cell + " text-center"}>{e.payment_method || "-"}</td>
-                <td className={cell + " text-right"}>{won(e.amount)}</td>
-                <td className={cell + " text-center"}>{rc ? `${rc}장` : "없음"}</td>
-              </tr>
-            );
-          })}
-          <tr className="font-bold">
-            <td className={cell + " text-center"} colSpan={6}>합 계</td>
-            <td className={cell + " text-right"}>{won(total)}</td>
-            <td className={cell}></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div className="mt-5 break-inside-avoid">
-        <div className="font-bold mb-1.5">분류별 소계</div>
-        <table className="border-collapse text-[10pt]">
-          <tbody>
-            {byCategory.map(([c, v]) => (
-              <tr key={c}>
-                <td className={cell + " w-40"}>{c}</td>
-                <td className={cell + " w-32 text-right"}>{won(v)}원</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-8 text-right text-[10pt]">
-        <div>출력일: {today}</div>
-        <div className="mt-1 font-semibold">지니어스 관리사무소 (문의 1551-9976)</div>
-      </div>
-
-      {/* 영수증 첨부 — 다음 장부터 */}
-      {withReceipts.length > 0 && (
-        <div className="break-before-page">
-          <div className="text-[14pt] font-bold mb-4">증빙 첨부 ({y}년 {Number(m)}월)</div>
-          {withReceipts.map(({ e, no, rcs }) => (
-            <div key={e.id} className="mb-6">
-              <div className="font-bold border-b border-black/40 pb-1 mb-2 break-after-avoid">
-                No.{no} · {e.expense_date.slice(5).replace("-", "/")} · {e.description || e.category} · {won(e.amount)}원
+    <div id="expense-print" className="hidden print:block text-black" style={{ WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>
+      {tablePages.map((list, pi) => {
+        const pageSum = list.reduce((s, { e }) => s + Number(e.amount || 0), 0);
+        const isLast = pi === tablePages.length - 1;
+        return (
+          <PrintPage key={"t" + pi}
+            title={pi === 0 ? `${buildingName} ${y}년 ${mm}월 지출 증빙 내역서` : `${y}년 ${mm}월 지출 증빙 내역서 (계속)`}
+            right={right} page={pi + 1} pages={pages}
+            footLeft={<>이 쪽 합계 {won(pageSum)}원{isLast ? <span className="font-normal text-black/60"> · 월 합계 {won(total)}원</span> : null}</>}
+            footRight={footRight}>
+            {pi === 0 ? (
+              <>
+                {/* 요약표 */}
+                <table className="w-full border-collapse text-[9pt] mb-3">
+                  <thead>
+                    <tr>
+                      <th className={th} style={{ background: "#fff" }}></th>
+                      <th className={th} style={{ background: NAVY }}>지출 합계</th>
+                      <th className={th} style={{ background: NAVY }}>증빙파일</th>
+                      <th className={th} style={{ background: NAVY }}>이체상태</th>
+                      <th className={th} style={{ background: "#b4441b" }}>관리자 점검</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-black/15">
+                      <td className="px-2 py-2 font-semibold bg-black/5">현황</td>
+                      <td className="px-2 py-2 font-bold">{won(total)}원 · {expenses.length}건</td>
+                      <td className="px-2 py-2">정상 {okCnt}건 · 미흡 {expenses.length - okCnt}건</td>
+                      <td className="px-2 py-2">집행 완료 {trDone}건 · 미확인 {trNeed}건</td>
+                      <td className="px-2 py-2">정상 {rvOk}건 · 미흡 {rvBad}건 · 점검 전 {expenses.length - rvOk - rvBad}건</td>
+                    </tr>
+                    <tr className="border-b border-black/15">
+                      <td className="px-2 py-2 font-semibold bg-black/5 align-top">분류별</td>
+                      <td className="px-2 py-2 text-[8.5pt] leading-relaxed" colSpan={4}>
+                        {byCategory.map(([c, v]) => `${c} ${won(v)}원`).join("  ·  ") || "-"}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div className="rounded-md bg-black/5 px-3 py-2.5 text-[9.5pt] leading-relaxed mb-3">
+                  {y}년 {mm}월 1일부터 {mm}월 {lastDay}일까지 {buildingName}의 관리비 지출 내역입니다.
+                  지출마다 <b>증빙(세금계산서·카드매출전표·현금영수증 중 하나 이상)</b>을 첨부하고,
+                  통장 출금 내역과 대조하여 <b>집행 여부를 확인</b>하였습니다. 증빙 사진은 {tablePages.length + 1}쪽부터 붙어 있습니다.
+                </div>
+              </>
+            ) : (
+              <div className="rounded-md bg-black/5 px-3 py-2 text-[9pt] mb-3">
+                {buildingName} · {y}년 {mm}월 지출 증빙 내역 — 1쪽의 요약과 이어집니다.
               </div>
-              <div className="flex flex-wrap gap-3">
-                {rcs.map((r) =>
-                  isImage(r.file_name) && urls[r.storage_path] ? (
-                    <img key={r.id} src={urls[r.storage_path]} alt={r.file_name}
-                      className="break-inside-avoid max-h-[115mm] max-w-full object-contain border border-black/20" />
-                  ) : (
-                    <div key={r.id} className="text-[10pt] border border-black/30 px-3 py-2">
-                      📄 {r.file_name} (사진이 아닌 파일 — 앱에서 확인)
-                    </div>
-                  )
+            )}
+
+            <table className="w-full border-collapse table-fixed">
+              <colgroup>
+                <col style={{ width: "7%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "10%" }} />
+                <col style={{ width: "12%" }} /><col /><col style={{ width: "14%" }} /><col style={{ width: "12%" }} />
+                <col style={{ width: "7%" }} /><col style={{ width: "7%" }} />
+              </colgroup>
+              <thead>
+                <tr style={{ background: NAVY }}>
+                  {["No", "사용일자", "이체일자", "증빙구분", "분류", "내용", "거래처", "금액(원)", "증빙", "점검"].map((h) => (
+                    <th key={h} className={th + (h === "금액(원)" ? " text-right" : " text-center")}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {list.map(({ e, no }) => {
+                  const rcs = receiptsByExpense[e.id] || [];
+                  const tx = txnByExpense[e.id];
+                  const ok = evidenceOk(rcs);
+                  return (
+                    <tr key={e.id}>
+                      <td className={td + " text-center"}>{no}</td>
+                      <td className={td + " text-center"}>{md(e.expense_date)}</td>
+                      <td className={td + " text-center"}>{tx ? md(tx.txn_date) : "-"}</td>
+                      <td className={td + " text-center"}>{evidenceType(rcs)}</td>
+                      <td className={td}>{e.category}</td>
+                      <td className={td}>{e.description || "-"}</td>
+                      <td className={td}>{e.vendor || "-"}</td>
+                      <td className={td + " text-right font-semibold"}>{won(e.amount)}</td>
+                      <td className={td + " text-center font-semibold"} style={{ color: ok ? "#1b64da" : "#c2410c" }}>{ok ? "정상" : "미흡"}</td>
+                      <td className={td + " text-center"}>{e.review_status || "미확인"}</td>
+                    </tr>
+                  );
+                })}
+                {isLast && (
+                  <tr className="font-bold" style={{ background: "rgba(0,0,0,0.05)" }}>
+                    <td className={td + " text-center"} colSpan={7}>월 합계 ({expenses.length}건)</td>
+                    <td className={td + " text-right"}>{won(total)}</td>
+                    <td className={td} colSpan={2}></td>
+                  </tr>
                 )}
+              </tbody>
+            </table>
+
+            {pi === 0 && (
+              <div className="mt-3 text-[8.5pt] leading-relaxed text-black/75">
+                <div>※ 증빙 '정상'은 세금계산서·카드매출전표·현금영수증(간이영수증) 중 하나 이상이 첨부된 경우입니다.</div>
+                <div>※ 이체일자는 관리비 통장 출금 내역과 연결된 날짜이며, 카드·현금 결제는 '-'로 표시됩니다.</div>
+                <div>※ 출력일 {today} · 세부 증빙은 지니어스 앱 [통장·지출]에서도 확인할 수 있습니다.</div>
               </div>
+            )}
+          </PrintPage>
+        );
+      })}
+
+      {attachPages.map((ap, i) => (
+        <PrintPage key={"a" + i}
+          title={`증빙 첨부 · No.${ap.no}${ap.part ? ` (${ap.part})` : ""}`}
+          right={right} page={tablePages.length + i + 1} pages={pages}
+          footLeft={<>No.{ap.no} · {won(ap.e.amount)}원</>}
+          footRight={footRight}>
+          <div className="rounded-md bg-black/5 px-3 py-2 text-[9.5pt] mb-3 flex justify-between gap-3">
+            <span><b>{md(ap.e.expense_date)}</b> · {ap.e.description || ap.e.category} · {ap.e.vendor || "-"}</span>
+            <span className="whitespace-nowrap">증빙구분 {evidenceType(receiptsByExpense[ap.e.id])} · <b>{won(ap.e.amount)}원</b></span>
+          </div>
+          {ap.imgs.length > 0 && (
+            <div className={"grid gap-3 " + (ap.imgs.length === 1 ? "grid-cols-1" : "grid-cols-2")} style={{ height: ap.files.length ? "185mm" : "205mm" }}>
+              {ap.imgs.map((r) => (
+                <figure key={r.id} className="flex flex-col min-h-0 border border-black/15 rounded p-1.5">
+                  <div className="text-[8.5pt] font-semibold mb-1" style={{ color: NAVY }}>[{r.doc_type || "기타"}]</div>
+                  <div className="flex-1 min-h-0 flex items-center justify-center">
+                    <img src={urls[r.storage_path]} alt={r.file_name} className="max-h-full max-w-full object-contain" />
+                  </div>
+                </figure>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          )}
+          {ap.files.length > 0 && (
+            <div className="mt-3 text-[9pt]">
+              <div className="font-semibold mb-1">사진이 아닌 증빙 파일 (앱에서 확인)</div>
+              {ap.files.map((r) => <div key={r.id}>· [{r.doc_type || "기타"}] {r.file_name}</div>)}
+            </div>
+          )}
+        </PrintPage>
+      ))}
     </div>
   );
 }
 
 // prefill: 통장 거래에서 [지출로 등록]을 눌렀을 때 미리 채울 값 { expense_date, amount, description, vendor }
-export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose, onSaved, prefill }) {
+export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, onClose, onSaved, prefill }) {
   const supabase = createClient();
   const isEdit = !!expense;
   const readOnly = !canManage;
@@ -351,12 +576,16 @@ export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose
   const [vendor, setVendor] = useState(init.vendor || "");
   const [payment, setPayment] = useState(init.payment_method || "계좌이체");
   const [memo, setMemo] = useState(expense?.memo || "");
-  const [newFiles, setNewFiles] = useState([]); // 새로 추가할 사진/파일
-  const [previews, setPreviews] = useState([]);
-  const [existing, setExisting] = useState(receipts);
+  const [reviewStatus, setReviewStatus] = useState(expense?.review_status || "미확인");
+  const [reviewMemo, setReviewMemo] = useState(expense?.review_memo || "");
+  const [newFiles, setNewFiles] = useState([]); // [{ file, docType, preview }]
+  const [existing, setExisting] = useState(receipts.map((r) => ({ ...r, doc_type: r.doc_type || "기타" })));
+  const [typeChanges, setTypeChanges] = useState({}); // 기존 파일 종류 변경 { id: docType }
   const [urls, setUrls] = useState({}); // 기존 증빙 보기용 임시 링크
   const [saving, setSaving] = useState(false);
   const [viewer, setViewer] = useState(null);
+  const [dragType, setDragType] = useState(null); // 끌어다 놓는 중인 칸
+  const [dragAny, setDragAny] = useState(false);
 
   // 기존 증빙 미리보기 링크 (10분 유효)
   useEffect(() => {
@@ -371,31 +600,22 @@ export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing.length]);
 
-  // 새로 고른 사진 미리보기
-  useEffect(() => {
-    const list = newFiles.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : null));
-    setPreviews(list);
-    return () => list.forEach((u) => u && URL.revokeObjectURL(u));
-  }, [newFiles]);
+  // 새 파일 미리보기 주소 정리
+  useEffect(() => () => newFiles.forEach((n) => n.preview && URL.revokeObjectURL(n.preview)), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function addFiles(e) {
-    const picked = Array.from(e.target.files || []);
-    e.target.value = "";
-    setNewFiles((prev) => [...prev, ...picked]);
+  function addFilesOf(docType, files) {
+    const list = Array.from(files || []).map((file) => ({
+      file, docType, preview: file.type?.startsWith("image/") ? URL.createObjectURL(file) : null,
+    }));
+    if (list.length) setNewFiles((prev) => [...prev, ...list]);
   }
-
-  // PC: 파일을 창 위로 끌어다 놓으면 증빙으로 추가
-  const [dragOver, setDragOver] = useState(false);
-  const dropProps = readOnly ? {} : {
-    onDragOver: (e) => { e.preventDefault(); if (!dragOver) setDragOver(true); },
-    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); },
-    onDrop: (e) => {
-      e.preventDefault();
-      setDragOver(false);
-      const dropped = Array.from(e.dataTransfer?.files || []);
-      if (dropped.length) setNewFiles((prev) => [...prev, ...dropped]);
-    },
-  };
+  function removeNew(idx) {
+    setNewFiles((prev) => {
+      const n = prev[idx];
+      if (n?.preview) URL.revokeObjectURL(n.preview);
+      return prev.filter((_, j) => j !== idx);
+    });
+  }
 
   async function removeExisting(r) {
     if (!confirm("이 증빙을 삭제할까요?")) return;
@@ -405,6 +625,13 @@ export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose
     setExisting((prev) => prev.filter((x) => x.id !== r.id));
   }
 
+  // 현재 화면 기준 증빙 상태 (기존 + 새 파일)
+  const currentDocs = [
+    ...existing.map((r) => ({ doc_type: typeChanges[r.id] || r.doc_type })),
+    ...newFiles.map((n) => ({ doc_type: n.docType })),
+  ];
+  const okNow = evidenceOk(currentDocs);
+
   async function save() {
     const amt = Number(String(amount).replace(/[^\d]/g, ""));
     if (!amt) { alert("금액을 입력해주세요."); return; }
@@ -413,6 +640,8 @@ export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose
     const payload = {
       expense_date: date, amount: amt, category,
       description: description.trim(), vendor: vendor.trim(), payment_method: payment, memo: memo.trim(),
+      review_status: reviewStatus, review_memo: reviewMemo.trim(),
+      reviewed_at: reviewStatus !== (expense?.review_status || "미확인") ? new Date().toISOString() : expense?.reviewed_at || null,
     };
     let expenseId = expense?.id;
     if (isEdit) {
@@ -423,13 +652,16 @@ export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose
       if (error) { setSaving(false); alert("저장 실패: " + error.message); return; }
       expenseId = data.id;
     }
-    for (const original of newFiles) {
+    for (const [id, docType] of Object.entries(typeChanges)) {
+      await supabase.from("expense_receipts").update({ doc_type: docType }).eq("id", id);
+    }
+    for (const { file: original, docType } of newFiles) {
       const { file, storageName, displayName, size } = await prepareUpload(original, { maxSide: DOC_MAX_SIDE });
       const path = `expenses/${buildingId}/${expenseId}/${storageName}`;
       const { error: upErr } = await supabase.storage.from("attachments").upload(path, file);
       if (upErr) { alert(`"${displayName}" 업로드 실패: ` + upErr.message); continue; }
       await supabase.from("expense_receipts").insert({
-        expense_id: expenseId, building_id: buildingId, file_name: displayName, storage_path: path, size_bytes: size,
+        expense_id: expenseId, building_id: buildingId, file_name: displayName, storage_path: path, size_bytes: size, doc_type: docType,
       });
     }
     setSaving(false);
@@ -446,17 +678,40 @@ export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose
     onSaved();
   }
 
-  const isImage = (name) => /\.(jpe?g|png|webp|heic|gif)$/i.test(name || "");
+  // 창 아무 곳에 놓으면 '기타'로, 증빙 칸 위에 놓으면 그 종류로 추가
+  const modalDrop = readOnly ? {} : {
+    onDragOver: (e) => { e.preventDefault(); if (!dragAny) setDragAny(true); },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) { setDragAny(false); setDragType(null); } },
+    onDrop: (e) => { e.preventDefault(); setDragAny(false); setDragType(null); addFilesOf("기타", e.dataTransfer?.files); },
+  };
+  const rowDrop = (key) => (readOnly ? {} : {
+    onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); if (dragType !== key) setDragType(key); if (!dragAny) setDragAny(true); },
+    onDrop: (e) => { e.preventDefault(); e.stopPropagation(); setDragAny(false); setDragType(null); addFilesOf(key, e.dataTransfer?.files); },
+  });
+
+  const Thumb = ({ name, src, onOpen, onRemove, typeSelect, isNew }) => (
+    <div className={"relative w-20 h-20 rounded-lg bg-surface2 overflow-hidden shrink-0 " + (isNew ? "ring-2 ring-accent/50" : "")}>
+      {src && isImage(name) ? (
+        <button type="button" className="w-full h-full" onClick={onOpen}>
+          <img src={src} alt={name} className="w-full h-full object-cover" />
+        </button>
+      ) : (
+        <a href={src || "#"} target="_blank" rel="noopener noreferrer" onClick={(e) => !src && e.preventDefault()}
+          className="w-full h-full flex flex-col items-center justify-center text-[10px] text-inkDim p-1 text-center">
+          <span className="text-xl">📄</span><span className="truncate w-full">{name}</span>
+        </a>
+      )}
+      {onRemove && (
+        <button type="button" onClick={onRemove} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-[10px]">✕</button>
+      )}
+      {typeSelect}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center sm:p-4 z-50" onClick={onClose}
       onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
-      <div className="relative bg-surface w-full sm:max-w-md max-h-[92vh] overflow-y-auto p-5 rounded-t-3xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()} {...dropProps}>
-        {dragOver && (
-          <div className="pointer-events-none absolute inset-2 z-10 rounded-2xl border-2 border-dashed border-accent bg-accent/10 flex items-center justify-center">
-            <div className="bg-surface rounded-xl px-4 py-3 text-sm font-semibold text-accent shadow">여기에 놓으면 증빙으로 추가돼요</div>
-          </div>
-        )}
+      <div className="relative bg-surface w-full sm:max-w-lg max-h-[92vh] overflow-y-auto p-5 rounded-t-3xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()} {...modalDrop}>
         <div className="flex items-center justify-between mb-4">
           <div className="font-bold text-lg">{readOnly ? "지출 상세" : isEdit ? "지출 수정" : "지출 등록"}</div>
           <button className="text-inkDim text-xl leading-none px-2" onClick={onClose} aria-label="닫기">×</button>
@@ -473,13 +728,13 @@ export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose
             </div>
           </label>
 
-          <label className="block text-xs font-semibold text-inkDim">내용
+          <label className="block text-xs font-semibold text-inkDim">내용 (품목·지급용도)
             <input className="mt-1" placeholder="예: 3층 복도 전등 교체" disabled={readOnly}
               value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
 
           <div className="grid grid-cols-2 gap-2">
-            <label className="block text-xs font-semibold text-inkDim">날짜
+            <label className="block text-xs font-semibold text-inkDim">사용일자
               <input type="date" className="mt-1" disabled={readOnly} value={date} onChange={(e) => setDate(e.target.value)} />
             </label>
             <label className="block text-xs font-semibold text-inkDim">분류
@@ -506,60 +761,110 @@ export function ExpenseModal({ buildingId, expense, receipts, canManage, onClose
             </label>
           )}
 
-          {/* 증빙 */}
+          {isEdit && (
+            <div className="rounded-xl bg-surface2 px-3 py-2 text-xs flex items-center justify-between">
+              <span className="text-inkDim">이체상태</span>
+              {txn
+                ? <span className="font-semibold text-ok">집행 완료 · {md(txn.txn_date)} 출금 ({txn.account_label})</span>
+                : <span className="font-semibold text-warn">{transferStatus(expense, null) === "-" ? "카드·현금 결제" : "통장 출금 미확인"}</span>}
+            </div>
+          )}
+
+          {/* 증빙파일 목록 (RCMS 방식) */}
           <div>
-            <div className="text-xs font-semibold text-inkDim mb-1.5">증빙 (영수증·세금계산서·이체확인증)</div>
-            {!readOnly && <div className="hidden md:block text-[11px] text-inkDim -mt-1 mb-1.5">PC에서는 파일(사진·PDF·엑셀)을 이 창에 끌어다 놓아도 돼요.</div>}
-            <div className="grid grid-cols-3 gap-2">
-              {existing.map((r) => (
-                <div key={r.id} className="relative aspect-square rounded-xl bg-surface2 overflow-hidden">
-                  {isImage(r.file_name) && urls[r.id] ? (
-                    <button type="button" className="w-full h-full" onClick={() => setViewer(urls[r.id])}>
-                      <img src={urls[r.id]} alt={r.file_name} className="w-full h-full object-cover" />
-                    </button>
-                  ) : (
-                    <a href={urls[r.id] || "#"} target="_blank" rel="noopener noreferrer"
-                      className="w-full h-full flex flex-col items-center justify-center text-[11px] text-inkDim p-2 text-center">
-                      <span className="text-2xl">📄</span>
-                      <span className="truncate w-full">{r.file_name}</span>
-                    </a>
-                  )}
-                  {!readOnly && (
-                    <button type="button" onClick={() => removeExisting(r)}
-                      className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs">✕</button>
-                  )}
-                </div>
-              ))}
-              {newFiles.map((f, i) => (
-                <div key={i} className="relative aspect-square rounded-xl bg-surface2 overflow-hidden ring-2 ring-accent/50">
-                  {previews[i] ? (
-                    <img src={previews[i]} alt={f.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-[11px] text-inkDim p-2 text-center">
-                      <span className="text-2xl">📄</span><span className="truncate w-full">{f.name}</span>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-xs font-semibold text-inkDim">증빙파일 목록</div>
+              <Pill tone={okNow ? "ok" : "warn"}>증빙 {okNow ? "정상" : "미흡"}</Pill>
+            </div>
+            {!readOnly && (
+              <div className="text-[11px] text-inkDim mb-2">
+                <b className="text-accent">선택필수</b> 3가지 중 하나는 꼭 올려주세요.
+                <span className="hidden md:inline"> 파일을 해당 칸 위로 끌어다 놓아도 돼요.</span>
+              </div>
+            )}
+            <div className="rounded-xl border border-border divide-y divide-border">
+              {DOC_TYPES.map((d) => {
+                const ex = existing.filter((r) => (typeChanges[r.id] || r.doc_type) === d.key);
+                const nw = newFiles.map((n, i) => ({ ...n, i })).filter((n) => n.docType === d.key);
+                const has = ex.length + nw.length > 0;
+                if (readOnly && !has) return null;
+                return (
+                  <div key={d.key} {...rowDrop(d.key)}
+                    className={"px-3 py-2 transition-colors " + (dragType === d.key ? "bg-accent/10" : dragAny ? "bg-surface2/60" : "")}>
+                    <div className="flex items-center gap-2">
+                      <span className="flex-1 min-w-0 text-sm font-semibold">
+                        {d.key}
+                        {d.required && <span className="text-danger ml-0.5">*</span>}
+                        {d.hint && <span className="text-[11px] font-normal text-inkDim ml-1">{d.hint}</span>}
+                      </span>
+                      {d.required && <span className="text-[11px] font-semibold text-accent">선택필수</span>}
+                      {has && <span className="text-[11px] text-inkDim">{ex.length + nw.length}개</span>}
+                      {!readOnly && (
+                        <>
+                          <label className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center cursor-pointer hover:bg-border" title="사진 찍기">
+                            📷
+                            <input type="file" accept="image/*" capture="environment" className="hidden"
+                              onChange={(e) => { addFilesOf(d.key, e.target.files); e.target.value = ""; }} />
+                          </label>
+                          <label className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center cursor-pointer hover:bg-border text-lg font-bold text-inkDim" title="파일 추가">
+                            +
+                            <input type="file" accept={FILE_ACCEPT} multiple className="hidden"
+                              onChange={(e) => { addFilesOf(d.key, e.target.files); e.target.value = ""; }} />
+                          </label>
+                        </>
+                      )}
                     </div>
-                  )}
-                  <button type="button" onClick={() => setNewFiles((prev) => prev.filter((_, j) => j !== i))}
-                    className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs">✕</button>
-                </div>
-              ))}
-              {!readOnly && (
+                    {has && (
+                      <div className="flex gap-2 overflow-x-auto mt-2 pb-1">
+                        {ex.map((r) => (
+                          <Thumb key={r.id} name={r.file_name} src={urls[r.id]} onOpen={() => setViewer(urls[r.id])}
+                            onRemove={readOnly ? null : () => removeExisting(r)}
+                            typeSelect={!readOnly && (
+                              <select value={typeChanges[r.id] || r.doc_type}
+                                onChange={(e) => setTypeChanges((p) => ({ ...p, [r.id]: e.target.value }))}
+                                className="absolute bottom-0 inset-x-0 text-[9px] px-1 py-0.5 rounded-none bg-black/60 text-white border-0"
+                                title="종류 변경">
+                                {DOC_TYPES.map((t) => <option key={t.key} value={t.key}>{t.key}</option>)}
+                              </select>
+                            )} />
+                        ))}
+                        {nw.map((n) => (
+                          <Thumb key={"n" + n.i} name={n.file.name} src={n.preview} isNew onOpen={() => n.preview && setViewer(n.preview)}
+                            onRemove={() => removeNew(n.i)} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {readOnly && existing.length === 0 && <div className="px-3 py-3 text-xs text-inkDim">첨부된 증빙이 없습니다.</div>}
+            </div>
+          </div>
+
+          {/* 관리자 점검 */}
+          {(canManage || (expense && (expense.review_status || "미확인") !== "미확인")) && (
+            <div className="rounded-xl border border-border p-3">
+              <div className="text-xs font-semibold text-inkDim mb-2">점검 (관리자)</div>
+              {canManage ? (
                 <>
-                  <label className="aspect-square rounded-xl border-2 border-dashed border-borderBright flex flex-col items-center justify-center gap-1 text-inkDim cursor-pointer hover:border-accent hover:text-accent">
-                    <span className="text-2xl">📷</span>
-                    <span className="text-[11px] font-semibold">사진 찍기</span>
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={addFiles} />
-                  </label>
-                  <label className="aspect-square rounded-xl border-2 border-dashed border-borderBright flex flex-col items-center justify-center gap-1 text-inkDim cursor-pointer hover:border-accent hover:text-accent">
-                    <span className="text-2xl">🖼️</span>
-                    <span className="text-[11px] font-semibold">파일 선택</span>
-                    <input type="file" accept="image/*,application/pdf,.xls,.xlsx,.xlsm,.csv,.hwp,.hwpx,.doc,.docx" multiple className="hidden" onChange={addFiles} />
-                  </label>
+                  <div className="grid grid-cols-3 gap-1.5 mb-2">
+                    {["미확인", "정상", "미흡"].map((s) => (
+                      <button key={s} type="button" onClick={() => setReviewStatus(s)}
+                        className={"rounded-lg py-2 text-sm font-semibold border " + (reviewStatus === s
+                          ? (s === "정상" ? "bg-ok text-white border-ok" : s === "미흡" ? "bg-danger text-white border-danger" : "bg-ink text-white border-ink")
+                          : "bg-surface border-border text-inkDim")}>{s}</button>
+                    ))}
+                  </div>
+                  <input placeholder="점검메모 (예: 세금계산서 재발행 요청)" value={reviewMemo} onChange={(e) => setReviewMemo(e.target.value)} />
                 </>
+              ) : (
+                <div className="flex items-center gap-2 text-sm">
+                  <Pill tone={reviewTone(expense.review_status)}>{expense.review_status}</Pill>
+                  <span className="text-inkDim">{expense.review_memo}</span>
+                </div>
               )}
             </div>
-            {readOnly && existing.length === 0 && <div className="text-xs text-inkDim">첨부된 증빙이 없습니다.</div>}
-          </div>
+          )}
         </div>
 
         {!readOnly && (
