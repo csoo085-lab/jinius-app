@@ -8,6 +8,10 @@ import { ExpenseModal, won, shiftMonth, dateLabel, evidenceOk } from "@/componen
 
 const MATCH_DAYS = 7; // 출금일과 지출일이 이 날짜 안이면 같은 건으로 자동 연결
 
+// 저장된 거래시각(UTC)을 한국 시간 "HH:MM"으로 표시
+const kstTime = (iso) =>
+  new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false });
+
 const dayDiff = (a, b) => Math.abs((new Date(a + "T00:00:00") - new Date(b + "T00:00:00")) / 86400000);
 
 // 증빙 없는 출금 ↔ 연결 안 된 지출을 금액·날짜로 자동 연결할 목록 만들기
@@ -260,7 +264,7 @@ export default function BankTransactionsManager({
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-[15px] truncate">{t.description || t.txn_type || t.direction}</div>
                         <div className="text-xs text-inkDim truncate">
-                          {t.txn_at.slice(11, 16)}{t.txn_type ? ` · ${t.txn_type}` : ""}{accounts.length > 1 ? ` · ${t.account_label}` : ""}
+                          {kstTime(t.txn_at)}{t.txn_type ? ` · ${t.txn_type}` : ""}{accounts.length > 1 ? ` · ${t.account_label}` : ""}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
