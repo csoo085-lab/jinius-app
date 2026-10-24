@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { computeBills, proposeWaterAdjust } from "@/lib/billing";
 import { parseKepcoUnits, parseWaterMeter } from "@/lib/billingParsers";
 import { InvoiceSheet } from "@/components/BillInvoice";
+import MonthPick from "@/components/MonthPick";
 
 const won = (n) => Math.round(Number(n) || 0).toLocaleString("ko-KR");
 const DOW = ["일", "월", "화", "수", "목", "금", "토"];
@@ -300,7 +301,7 @@ export default function BillingManager({ building, units, run, prevRun, deposits
           <div className="flex items-center justify-between">
             <button className="btn-ghost text-xs" onClick={() => goMonth(shift(month, -1))}>‹ 이전</button>
             <div className="text-center">
-              <div className="font-bold text-base">{month.slice(0, 4)}년 {mm}월분</div>
+              <div className="font-bold text-base"><MonthPick month={month} onChange={goMonth}>{month.slice(0, 4)}년 {mm}월분</MonthPick></div>
               <div className="text-xs text-inkDim">{Number(shift(month, 1).slice(5))}월 고지 · {run ? (locked ? "확정됨" : "작성 중") : "새로 작성"}</div>
             </div>
             <button className="btn-ghost text-xs" onClick={() => goMonth(shift(month, 1))}>다음 ›</button>
