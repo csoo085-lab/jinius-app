@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import MonthPick from "@/components/MonthPick";
 import { prepareUpload, DOC_MAX_SIDE } from "@/lib/uploadUtils";
 
 export const EXPENSE_CATEGORIES = [
@@ -291,7 +292,7 @@ export default function ExpensesManager({
       <div className="card mb-4">
         <div className="flex items-center justify-between mb-4">
           <button className="btn-ghost text-xs" onClick={() => goMonth(shiftMonth(month, -1))} aria-label="이전 달">‹ 이전</button>
-          <div className="font-bold text-base">{y}년 {Number(m)}월</div>
+          <div className="font-bold text-base"><MonthPick month={month} onChange={goMonth}>{y}년 {Number(m)}월</MonthPick></div>
           <button className="btn-ghost text-xs" onClick={() => goMonth(shiftMonth(month, 1))} aria-label="다음 달">다음 ›</button>
         </div>
         <div className="text-sm text-inkDim">이번 달 지출 합계</div>
