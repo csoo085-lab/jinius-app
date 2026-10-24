@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { parseBankFile, dedupKey } from "@/lib/bankParser";
-import { ExpenseModal, won, shiftMonth, dateLabel } from "@/components/ExpensesManager";
+import { ExpenseModal, won, shiftMonth, dateLabel, evidenceOk } from "@/components/ExpensesManager";
 
 const MATCH_DAYS = 7; // 출금일과 지출일이 이 날짜 안이면 같은 건으로 자동 연결
 
@@ -277,9 +277,12 @@ export default function BankTransactionsManager({
                           <>
                             <button onClick={() => exp && setEditing({ txn: t, expense: exp })}
                               className="tag py-1 px-2.5 border-ok/40 text-ok bg-ok/5">
-                              ✓ 증빙 완료{exp ? ` · ${exp.description || exp.category}` : ""}
+                              ✓ 지출 연결{exp ? ` · ${exp.description || exp.category}` : ""}
                               {exp && (receiptsByExpense[exp.id] || []).length ? ` 📎${receiptsByExpense[exp.id].length}` : ""}
                             </button>
+                            {exp && (evidenceOk(receiptsByExpense[exp.id])
+                              ? <span className="text-[11px] font-semibold text-accent">증빙 정상</span>
+                              : <span className="text-[11px] font-semibold text-warn">증빙 미흡</span>)}
                             {canManage && <button onClick={() => unlink(t)} className="text-[11px] text-inkDim underline">연결 해제</button>}
                           </>
                         )}
@@ -344,6 +347,7 @@ export default function BankTransactionsManager({
           buildingId={buildingId}
           expense={editing.expense || null}
           receipts={editing.expense ? receiptsByExpense[editing.expense.id] || [] : []}
+          txn={editing.expense ? editing.txn : null}
           canManage={canManage}
           prefill={editing.expense ? null : {
             expense_date: editing.txn.txn_date,
