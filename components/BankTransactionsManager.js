@@ -354,7 +354,7 @@ export default function BankTransactionsManager({
 
                     {t.direction === "출금" && !isXfer(t) && (
                       <div className="mt-2 ml-12 flex flex-wrap items-center gap-1.5">
-                        {(() => { const rc = matchRecurring(t, recurring); return rc ? <span className="tag py-1 px-2.5 text-accent border-accent/40">🔁 {rc.name} {periodLabel(rc, month)}</span> : null; })()}
+                        {(() => { const rc = matchRecurring(t, recurring); return rc ? <span className="tag py-1 px-2.5 text-accent border-accent/40">🔁 고정지출 · {rc.name}</span> : null; })()}
                         {st === "완료" && (
                           <>
                             <button onClick={() => exp && setEditing({ txn: t, expense: exp })}
