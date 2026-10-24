@@ -15,6 +15,7 @@ import { findTransfers, isTransferItem } from "@/lib/transfers";
 import { matchRecurring } from "@/lib/recurring";
 import FeeCharges from "@/components/FeeCharges";
 import { OpeningSummary, OpeningEditor, openingLines } from "@/components/BookOpening";
+import { computeDues } from "@/lib/dues";
 import MonthPick from "@/components/MonthPick";
 
 const NAVY = "#1f2a44";
@@ -37,7 +38,7 @@ export default function BookkeepingManager({
   buildingId, buildingName, month, settings, accounts, txns, expenses, canManage, setupNeeded,
   recurring = [], recurringReady = true,
   charges = [], chargesReady = true, deposits = [], units = [], itemAccounts = {},
-  opening = null, openingReady = true,
+  opening = null, openingReady = true, outflows = null, bills = [], duesReady = false,
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -68,13 +69,18 @@ export default function BookkeepingManager({
     return () => clearTimeout(t);
   }, [printing]);
 
+  // ---------- 고정지출 달별 결재 (출금은 가장 오래된 미결재 달부터) ----------
+  const dues = useMemo(() => (duesReady && outflows ? computeDues({
+    items: recurring, outflows, bills, startMonth: opening?.date ? opening.date.slice(0, 7) : "", uptoMonth: month,
+  }) : null), [duesReady, recurring, outflows, bills, opening, month]);
+
   // ---------- 분개 (1월~이번 달) ----------
   const journalAll = useMemo(() => (enabled ? buildJournal({
     accounts, txns, expenses, bankMap: settings.bankMap || {}, cashCode: settings.cashCode, cardCode: settings.cardCode, recurring,
     // 올해 1월 ~ 이번 달에 장부일이 있는 부과만
     charges: charges.filter((c) => c.charge_date >= `${month.slice(0, 4)}-01-01` && c.charge_date < `${shiftMonth(month, 1)}-01`),
-    allCharges: charges, units, priorDeposits: deposits, opening,
-  }).filter((e) => e.date >= `${month.slice(0, 4)}-01-01`) : []), [enabled, accounts, txns, expenses, settings, recurring, charges, month, units, deposits, opening]);
+    allCharges: charges, units, priorDeposits: deposits, opening, dues,
+  }).filter((e) => e.date >= `${month.slice(0, 4)}-01-01`) : []), [enabled, accounts, txns, expenses, settings, recurring, charges, month, units, deposits, opening, dues]);
   const journal = useMemo(() => {
     const list = journalAll.filter((e) => inMonth(e.date));
     list.forEach((e, i) => { e.mno = i + 1; });
@@ -192,7 +198,7 @@ export default function BookkeepingManager({
           accounts={enabled ? accounts : []} itemAccounts={itemAccounts} canManage={canManage} ready={chargesReady} />
 
         <RecurringExpenses buildingId={buildingId} month={month} items={recurring} txns={txns} accounts={enabled ? accounts : []}
-          canManage={canManage} ready={recurringReady} />
+          canManage={canManage} ready={recurringReady} dues={dues} />
 
         {!enabled ? (
           <CashbookTable rows={cashbook} />
