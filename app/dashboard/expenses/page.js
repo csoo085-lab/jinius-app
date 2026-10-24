@@ -216,6 +216,19 @@ export default async function MoneyPage({ searchParams }) {
     }
     const { data: unitRows } = await supabase.from("units").select("id, dong, ho").eq("building_id", buildingId);
 
+    // 고정지출 달별 결재: 회계 시작일(없으면 2년 전)부터의 출금 + 달별 청구액 (recurring_dues.sql 실행 전이면 끔)
+    const { data: bills, error: billErr } = await supabase.from("recurring_bills").select("recurring_id, month, amount")
+      .eq("building_id", buildingId).lte("month", month);
+    let outflows = null;
+    if (!billErr) {
+      const since = opening?.date || `${Number(month.slice(0, 4)) - 2}-01-01`;
+      const { data: outs } = await supabase.from("bank_transactions")
+        .select("id, txn_date, txn_at, amount, direction, description, txn_type, account_label, recurring_id, expense_id")
+        .eq("building_id", buildingId).eq("direction", "출금").gte("txn_date", since).lt("txn_date", next)
+        .order("txn_at", { ascending: true });
+      outflows = outs || [];
+    }
+
     body = (
       <BookkeepingManager
         charges={charges || []}
@@ -225,6 +238,9 @@ export default async function MoneyPage({ searchParams }) {
         itemAccounts={fia?.fee_item_accounts || {}}
         opening={opening}
         openingReady={!opErr}
+        outflows={outflows}
+        bills={bills || []}
+        duesReady={!billErr}
         recurring={recurring || []}
         recurringReady={!recErr}
         buildingId={buildingId}
