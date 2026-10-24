@@ -14,6 +14,7 @@ import RecurringExpenses from "@/components/RecurringExpenses";
 import { findTransfers, isTransferItem } from "@/lib/transfers";
 import { matchRecurring } from "@/lib/recurring";
 import FeeCharges from "@/components/FeeCharges";
+import { OpeningSummary, OpeningEditor, openingLines } from "@/components/BookOpening";
 import MonthPick from "@/components/MonthPick";
 
 const NAVY = "#1f2a44";
@@ -36,11 +37,13 @@ export default function BookkeepingManager({
   buildingId, buildingName, month, settings, accounts, txns, expenses, canManage, setupNeeded,
   recurring = [], recurringReady = true,
   charges = [], chargesReady = true, deposits = [], units = [], itemAccounts = {},
+  opening = null, openingReady = true,
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [settingOpen, setSettingOpen] = useState(false);
+  const [openingOpen, setOpeningOpen] = useState(false);
   const [report, setReport] = useState("journal");
   const [printing, setPrinting] = useState(null); // { kind, n } 출력할 장부
   const [busy, setBusy] = useState("");
@@ -70,7 +73,8 @@ export default function BookkeepingManager({
     accounts, txns, expenses, bankMap: settings.bankMap || {}, cashCode: settings.cashCode, cardCode: settings.cardCode, recurring,
     // 올해 1월 ~ 이번 달에 장부일이 있는 부과만
     charges: charges.filter((c) => c.charge_date >= `${month.slice(0, 4)}-01-01` && c.charge_date < `${shiftMonth(month, 1)}-01`),
-  }) : []), [enabled, accounts, txns, expenses, settings, recurring, charges, month]);
+    allCharges: charges, units, priorDeposits: deposits, opening,
+  }).filter((e) => e.date >= `${month.slice(0, 4)}-01-01`) : []), [enabled, accounts, txns, expenses, settings, recurring, charges, month, units, deposits, opening]);
   const journal = useMemo(() => {
     const list = journalAll.filter((e) => inMonth(e.date));
     list.forEach((e, i) => { e.mno = i + 1; });
@@ -111,7 +115,8 @@ export default function BookkeepingManager({
   const cashbook = useMemo(() => {
     const rows = [];
     const xf = findTransfers(txns);
-    txns.filter((t) => inMonth(t.txn_date)).forEach((t) => {
+    const from = opening?.date || "";
+    txns.filter((t) => inMonth(t.txn_date) && t.txn_date >= from).forEach((t) => {
       const e = t.expense_id ? expenses.find((x) => x.id === t.expense_id) : null;
       const x = xf[t.id];
       // 내 통장 간 이체는 수입·지출 합계에서 뺌
@@ -124,7 +129,7 @@ export default function BookkeepingManager({
         bal: t.balance, xfer: isX,
       });
     });
-    expenses.filter((e) => inMonth(e.expense_date) && (e.payment_method === "카드" || e.payment_method === "현금")).forEach((e) => {
+    expenses.filter((e) => inMonth(e.expense_date) && e.expense_date >= from && (e.payment_method === "카드" || e.payment_method === "현금")).forEach((e) => {
       rows.push({
         at: `${e.expense_date}T12:00:00+09:00`, date: e.expense_date, via: e.payment_method,
         desc: `${e.description}${e.vendor ? ` (${e.vendor})` : ""}`, cat: e.category, inc: 0, out: Number(e.amount), bal: null,
@@ -132,7 +137,7 @@ export default function BookkeepingManager({
     });
     rows.sort((a, b) => (a.at || "").localeCompare(b.at || ""));
     return rows;
-  }, [txns, expenses, month, recurring]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [txns, expenses, month, recurring, opening]); // eslint-disable-line react-hooks/exhaustive-deps
   const cbIn = cashbook.reduce((s, r) => s + (r.xfer ? 0 : r.inc), 0);
   const cbOut = cashbook.reduce((s, r) => s + (r.xfer ? 0 : r.out), 0);
 
@@ -180,7 +185,10 @@ export default function BookkeepingManager({
           )}
         </div>
 
-        <FeeCharges buildingId={buildingId} month={month} charges={charges} deposits={deposits} units={units}
+        <OpeningSummary opening={opening} charges={charges} accounts={accounts} canManage={canManage} ready={openingReady}
+          onEdit={() => setOpeningOpen(true)} />
+
+        <FeeCharges buildingId={buildingId} month={month} charges={charges} deposits={deposits} units={units} opening={opening}
           accounts={enabled ? accounts : []} itemAccounts={itemAccounts} canManage={canManage} ready={chargesReady} />
 
         <RecurringExpenses buildingId={buildingId} month={month} items={recurring} txns={txns} accounts={enabled ? accounts : []}
@@ -229,15 +237,20 @@ export default function BookkeepingManager({
             {report === "income" && <div className="card"><IncomeTable accounts={accounts} totM={totM} totY={totY} /></div>}
             <div className="text-xs text-inkDim mt-3 leading-relaxed">
               통장 입출금은 통장내역 기준으로, 카드·현금 지출은 지출 등록 기준으로 분개됩니다. 계좌이체로 등록한 지출은 통장 출금이 확인된 뒤 장부에 들어갑니다.
-              누계는 {y}년 1월부터입니다.
+              누계는 {opening?.date && opening.date > `${y}-01-01` ? `회계 시작일(${opening.date.replaceAll("-", ".")})` : `${y}년 1월`}부터입니다.
             </div>
           </>
         )}
       </div>
 
       {printing && (
-        <PrintReports kind={printing.kind} buildingName={buildingName} month={month} accounts={accounts} byCode={byCode}
+        <PrintReports notes={openingLines(opening, charges, accounts)} since={opening?.date || ""} kind={printing.kind} buildingName={buildingName} month={month} accounts={accounts} byCode={byCode}
           journal={journal} totM={totM} totY={totY} totB={totB} cashbook={cashbook} cbIn={cbIn} cbOut={cbOut} />
+      )}
+
+      {openingOpen && (
+        <OpeningEditor buildingId={buildingId} opening={opening} charges={charges} txns={txns} settings={settings} accounts={accounts}
+          onClose={() => setOpeningOpen(false)} />
       )}
 
       {settingOpen && (
@@ -468,7 +481,7 @@ function PrintTable({ head, rows, widths }) {
   );
 }
 
-function PrintReports({ kind, buildingName, month, accounts, byCode, journal, totM, totY, totB, cashbook, cbIn, cbOut }) {
+function PrintReports({ notes = [], since = "", kind, buildingName, month, accounts, byCode, journal, totM, totY, totB, cashbook, cbIn, cbOut }) {
   const [y, m] = month.split("-");
   const mm = Number(m);
   const period = `${y}년 ${mm}월`;
@@ -570,8 +583,9 @@ function PrintReports({ kind, buildingName, month, accounts, byCode, journal, to
           {i === 0 && (
             <div className="text-[9pt] text-black/70 mb-2">
               기간 {y}. {String(mm).padStart(2, "0")}. 01 ~ {y}. {String(mm).padStart(2, "0")}. {new Date(Number(y), mm, 0).getDate()}
-              {(kind === "trial" || kind === "income") && <> · 누계 {y}. 01. 01부터</>}
+              {(kind === "trial" || kind === "income") && <> · 누계 {since && since > `${y}-01-01` ? since.replaceAll("-", ". ") : `${y}. 01. 01`}부터</>}
               {kind !== "cashbook" && <> · 단위: 원</>}
+              {notes.map((n, k) => <div key={k} className="text-[8pt] text-black/60">· {n}</div>)}
             </div>
           )}
           {p.body}
