@@ -81,15 +81,29 @@ export default function BankTransactionsManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txns, expenses]);
 
-  // 입금자명으로 호실 자동 지정 (한 번 지정한 이름은 다음 달부터 자동)
+  // 입금자명에 적힌 호수 (예: "1505호", "강유미.304호") → 그 호실이 하나뿐이면 지정
+  const unitByHoNum = useMemo(() => {
+    const m = {};
+    units.forEach((u) => { const k = String(Number((String(u.ho || "").match(/\d{3,4}/) || [""])[0]) || ""); if (k) (m[k] = m[k] || []).push(u.id); });
+    return m;
+  }, [units]);
+  const guessUnit = (t) => {
+    const remembered = payerMap[normPayer(t.description)];
+    if (remembered && unitById[remembered]) return remembered;
+    const hits = [...String(t.description || "").matchAll(/(\d{3,4})\s*호/g)].map((x) => String(Number(x[1])));
+    const ids = [...new Set(hits.flatMap((h) => unitByHoNum[h] || []))];
+    return ids.length === 1 ? ids[0] : null;
+  };
+
+  // 입금자명으로 호실 자동 지정 (한 번 지정한 이름은 다음 달부터 자동, 호수가 적힌 입금도 자동)
   useEffect(() => {
     if (!canManage || !unitsReady || unitRan.current) return;
-    const todo = txns.filter((t) => t.direction === "입금" && !t.unit_id && payerMap[normPayer(t.description)] && unitById[payerMap[normPayer(t.description)]]);
+    const todo = txns.filter((t) => t.direction === "입금" && !t.unit_id && guessUnit(t)).map((t) => [t, guessUnit(t)]);
     if (!todo.length) return;
     unitRan.current = true;
     (async () => {
-      for (const t of todo) {
-        await supabase.from("bank_transactions").update({ unit_id: payerMap[normPayer(t.description)] }).eq("id", t.id);
+      for (const [t, unitId] of todo) {
+        await supabase.from("bank_transactions").update({ unit_id: unitId }).eq("id", t.id);
       }
       unitRan.current = false;
       router.refresh();
