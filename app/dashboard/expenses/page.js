@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import ExpensesManager from "@/components/ExpensesManager";
 import BankStatementsManager from "@/components/BankStatementsManager";
 import BankTransactionsManager from "@/components/BankTransactionsManager";
+import BookkeepingManager from "@/components/BookkeepingManager";
 
 // 한국 시간 기준 "YYYY-MM"
 function thisMonthKST() {
@@ -21,6 +22,7 @@ const TABS = [
   { key: "txns", label: "거래내역" },
   { key: "expenses", label: "지출" },
   { key: "files", label: "통장 파일" },
+  { key: "books", label: "회계 장부" },
 ];
 const DEFAULT_TAB = "txns";
 
@@ -163,6 +165,43 @@ export default async function MoneyPage({ searchParams }) {
         minutes={minutes}
         canManage={canManage}
         setupNeeded={!!error}
+      />
+    );
+  } else if (tab === "books") {
+    // 회계 장부: 1월부터 이번 달까지 (누계·전월 이월 계산용)
+    const yearStart = `${month.slice(0, 4)}-01-01`;
+    const { next } = monthRange(month);
+    const { data: cfg, error: cfgErr } = await supabase.from("buildings")
+      .select("bookkeeping_enabled, bank_account_codes, cash_account_code, card_account_code").eq("id", buildingId).maybeSingle();
+    const { data: accounts } = await supabase.from("building_accounts")
+      .select("code, name, side, level, parent_code, is_leaf, sort").eq("building_id", buildingId).order("sort", { ascending: true });
+    const { data: txns } = await supabase.from("bank_transactions").select("*")
+      .eq("building_id", buildingId).gte("txn_date", yearStart).lt("txn_date", next).order("txn_at", { ascending: true });
+    const { data: exps } = await supabase.from("building_expenses").select("*")
+      .eq("building_id", buildingId).gte("expense_date", addDays(yearStart, -60)).lt("expense_date", next);
+    // 출금에 연결된 지출 중 기간 밖의 것도 가져옴
+    const known = new Set((exps || []).map((e) => e.id));
+    const missing = Array.from(new Set((txns || []).map((t) => t.expense_id).filter((id) => id && !known.has(id))));
+    const { data: extra } = missing.length ? await supabase.from("building_expenses").select("*").in("id", missing) : { data: [] };
+    // 카드·현금 지출은 올해 것만 장부에 들어감
+    const expenses = [...(exps || []), ...(extra || [])]
+      .filter((e) => (e.payment_method !== "카드" && e.payment_method !== "현금") || e.expense_date >= yearStart);
+    body = (
+      <BookkeepingManager
+        buildingId={buildingId}
+        buildingName={buildingName}
+        month={month}
+        settings={{
+          enabled: !!cfg?.bookkeeping_enabled,
+          bankMap: cfg?.bank_account_codes || {},
+          cashCode: cfg?.cash_account_code || "",
+          cardCode: cfg?.card_account_code || "",
+        }}
+        accounts={accounts || []}
+        txns={txns || []}
+        expenses={expenses}
+        canManage={canManage}
+        setupNeeded={!!cfgErr}
       />
     );
   } else if (tab === "files") {
