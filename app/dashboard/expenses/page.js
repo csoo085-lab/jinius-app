@@ -81,6 +81,22 @@ export default async function MoneyPage({ searchParams }) {
     t2: Number(bRow?.expense_approval_t2) || 3000000,
   };
 
+  // 지출 증빙에 연결할 회의록 목록 (관리자·담당자만)
+  let minutes = [];
+  if (canManage) {
+    const { data: mm } = await supabase.from("meeting_minutes")
+      .select("id, title, meeting_type, meeting_date, expense_related")
+      .eq("building_id", buildingId).order("meeting_date", { ascending: false }).limit(200);
+    if (mm) minutes = mm;
+    else {
+      // expense_related 칸을 아직 만들지 않은 경우
+      const { data: mm2 } = await supabase.from("meeting_minutes")
+        .select("id, title, meeting_type, meeting_date").eq("building_id", buildingId)
+        .order("meeting_date", { ascending: false }).limit(200);
+      minutes = (mm2 || []).map((m) => ({ ...m, expense_related: true }));
+    }
+  }
+
   const tab = TABS.some((t) => t.key === searchParams?.tab) ? searchParams.tab : DEFAULT_TAB;
   const month = /^\d{4}-\d{2}$/.test(searchParams?.month || "") ? searchParams.month : thisMonthKST();
 
@@ -144,6 +160,7 @@ export default async function MoneyPage({ searchParams }) {
         receiptsByExpense={receiptsByExpense}
         linkedExpenseIds={Array.from(new Set((linkedRows || []).map((r) => r.expense_id)))}
         thresholds={thresholds}
+        minutes={minutes}
         canManage={canManage}
         setupNeeded={!!error}
       />
@@ -187,6 +204,7 @@ export default async function MoneyPage({ searchParams }) {
       <ExpensesManager
         txnByExpense={txnByExpense}
         thresholds={thresholds}
+        minutes={minutes}
         buildingName={buildingName}
         buildingId={buildingId}
         month={month}
