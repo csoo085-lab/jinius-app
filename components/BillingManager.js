@@ -207,8 +207,30 @@ export default function BillingManager({ building, units, run, prevRun, deposits
       inputs, lines: payloadLines, totals: calc.totals, updated_at: new Date().toISOString(),
     };
     const { error } = await supabase.from("bill_runs").upsert(row, { onConflict: "building_id,month" });
+    if (error) { setBusy(""); alert("저장 실패: " + error.message); return; }
+
+    // 확정하면 회계 장부의 관리비 부과(미수관리비)로 넘김, 확정 취소하면 뺌
+    if (status === "확정") {
+      const tt = calc.totals;
+      const sumOf = (k) => calc.rows.reduce((s2, r) => s2 + (Number(r[k]) || 0), 0);
+      const items = [
+        { name: "관리비", total: tt.fee }, { name: "주차비", total: tt.parking },
+        { name: settings.elecMode === "공용전기" ? "공용전기료" : "세대전기료", total: tt.elec },
+        { name: "세대수도료", total: tt.water },
+        { name: "차감액", total: -sumOf("deduct") }, { name: "추가금액", total: sumOf("repair") },
+      ].filter((i) => Math.round(i.total)).map((i) => ({ ...i, total: Math.round(i.total * 100) / 100 }));
+      const itemsTotal = items.reduce((s2, i) => s2 + i.total, 0);
+      const { error: fe } = await supabase.from("fee_charges").upsert({
+        building_id: building.id, month, charge_date: `${month}-${String(D).padStart(2, "0")}`, source: "고지서 작업", source_file: "",
+        items, units: calc.rows.map((r) => ({ ho: r.ho, charge: r.charge, unpaid: r.unpaid, unpaidLate: 0, area: r.area })),
+        totals: { charge: tt.charge, unpaid: tt.unpaid, unpaidLate: 0, items: itemsTotal, rounding: Math.round((tt.charge - itemsTotal) * 100) / 100, units: calc.rows.length },
+        late_fee_charged: false,
+      }, { onConflict: "building_id,month" });
+      if (fe && !/fee_charges/.test(fe.message)) alert("회계 장부로 넘기지 못했어요: " + fe.message);
+    } else if (locked) {
+      await supabase.from("fee_charges").delete().eq("building_id", building.id).eq("month", month).eq("source", "고지서 작업");
+    }
     setBusy("");
-    if (error) { alert("저장 실패: " + error.message); return; }
     setMsg(status === "확정" ? "확정했습니다." : status === "작성중" && locked ? "확정을 취소했습니다." : "저장했습니다.");
     router.refresh();
   }
