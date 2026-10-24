@@ -200,8 +200,27 @@ export default async function MoneyPage({ searchParams }) {
       .filter((e) => (e.payment_method !== "카드" && e.payment_method !== "현금") || e.expense_date >= yearStart);
     const { data: recurring, error: recErr } = await supabase.from("building_recurring_expenses").select("*")
       .eq("building_id", buildingId).order("sort", { ascending: true });
+
+    // 관리비 부과 내역 (fee_charges.sql 실행 전이면 빈 값) + 미납 계산용 입금·호실
+    const { data: charges, error: chErr } = await supabase.from("fee_charges").select("*")
+      .eq("building_id", buildingId).lte("month", month).order("month", { ascending: true });
+    const { data: fia } = await supabase.from("buildings").select("fee_item_accounts").eq("id", buildingId).maybeSingle();
+    let deposits = [];
+    if (charges?.length) {
+      const { data: dep } = await supabase.from("bank_transactions")
+        .select("id, txn_date, amount, direction, description, txn_type, unit_id")
+        .eq("building_id", buildingId).eq("direction", "입금").gt("txn_date", charges[0].charge_date).lt("txn_date", next);
+      deposits = dep || [];
+    }
+    const { data: unitRows } = await supabase.from("units").select("id, dong, ho").eq("building_id", buildingId);
+
     body = (
       <BookkeepingManager
+        charges={charges || []}
+        chargesReady={!chErr}
+        deposits={deposits}
+        units={unitRows || []}
+        itemAccounts={fia?.fee_item_accounts || {}}
         recurring={recurring || []}
         recurringReady={!recErr}
         buildingId={buildingId}
