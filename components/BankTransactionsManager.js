@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { parseBankFile, dedupKey } from "@/lib/bankParser";
 import { ExpenseModal, won, shiftMonth, dateLabel, evidenceOk } from "@/components/ExpensesManager";
+import { matchRecurring, periodLabel, normPayer, unitLabel } from "@/lib/recurring";
 
 const MATCH_DAYS = 7; // 출금일과 지출일이 이 날짜 안이면 같은 건으로 자동 연결
 
@@ -35,6 +36,7 @@ function findMatches(txns, expenses, linkedExpenseIds) {
 
 export default function BankTransactionsManager({
   buildingId, month, txns, expenses, receiptsByExpense, linkedExpenseIds, canManage, setupNeeded, thresholds, minutes = [],
+  units = [], payerMap = {}, recurring = [], unitsReady = false,
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -48,6 +50,10 @@ export default function BankTransactionsManager({
   const [linking, setLinking] = useState(null); // 기존 지출 연결 창
   const fileRef = useRef(null);
   const autoRan = useRef(false);
+  const unitRan = useRef(false);
+  const unitById = useMemo(() => Object.fromEntries(units.map((u) => [u.id, u])), [units]);
+  const sortedUnits = useMemo(() => [...units].sort((a, b) =>
+    (a.dong || "").localeCompare(b.dong || "", "ko", { numeric: true }) || (a.ho || "").localeCompare(b.ho || "", "ko", { numeric: true })), [units]);
 
   const expenseById = useMemo(() => Object.fromEntries(expenses.map((e) => [e.id, e])), [expenses]);
   const linkedSet = useMemo(() => new Set(linkedExpenseIds), [linkedExpenseIds]);
@@ -74,6 +80,33 @@ export default function BankTransactionsManager({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txns, expenses]);
+
+  // 입금자명으로 호실 자동 지정 (한 번 지정한 이름은 다음 달부터 자동)
+  useEffect(() => {
+    if (!canManage || !unitsReady || unitRan.current) return;
+    const todo = txns.filter((t) => t.direction === "입금" && !t.unit_id && payerMap[normPayer(t.description)] && unitById[payerMap[normPayer(t.description)]]);
+    if (!todo.length) return;
+    unitRan.current = true;
+    (async () => {
+      for (const t of todo) {
+        await supabase.from("bank_transactions").update({ unit_id: payerMap[normPayer(t.description)] }).eq("id", t.id);
+      }
+      unitRan.current = false;
+      router.refresh();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txns, payerMap]);
+
+  async function assignUnit(t, unitId) {
+    const { error } = await supabase.from("bank_transactions").update({ unit_id: unitId || null }).eq("id", t.id);
+    if (error) { alert("저장 실패: " + error.message); return; }
+    const payer = normPayer(t.description);
+    if (unitId && payer) {
+      await supabase.from("building_payer_units")
+        .upsert({ building_id: buildingId, payer, unit_id: unitId }, { onConflict: "building_id,payer" });
+    }
+    router.refresh();
+  }
 
   // ---------- 파일 올리기 ----------
   async function handleFile(file) {
@@ -275,8 +308,27 @@ export default function BankTransactionsManager({
                       </div>
                     </div>
 
+                    {t.direction === "입금" && unitsReady && (units.length > 0 || canManage) && (
+                      <div className="mt-2 ml-12 flex flex-wrap items-center gap-1.5">
+                        {canManage ? (
+                          units.length ? (
+                            <select value={t.unit_id || ""} onChange={(e) => assignUnit(t, e.target.value)}
+                              className={"text-xs py-1 px-2 w-auto min-w-[7rem] " + (t.unit_id ? "font-semibold" : "text-inkDim")}>
+                              <option value="">호실 선택</option>
+                              {sortedUnits.map((u) => <option key={u.id} value={u.id}>{unitLabel(u)}</option>)}
+                            </select>
+                          ) : (
+                            <a href={`/dashboard/units?building=${buildingId}`} className="text-[11px] text-inkDim underline">호실을 먼저 등록하면 입금마다 호실을 지정할 수 있어요</a>
+                          )
+                        ) : t.unit_id && unitById[t.unit_id] ? (
+                          <span className="tag py-1 px-2.5">{unitLabel(unitById[t.unit_id])}</span>
+                        ) : null}
+                      </div>
+                    )}
+
                     {t.direction === "출금" && (
                       <div className="mt-2 ml-12 flex flex-wrap items-center gap-1.5">
+                        {(() => { const rc = matchRecurring(t, recurring); return rc ? <span className="tag py-1 px-2.5 text-accent border-accent/40">🔁 {rc.name} {periodLabel(rc, month)}</span> : null; })()}
                         {st === "완료" && (
                           <>
                             <button onClick={() => exp && setEditing({ txn: t, expense: exp })}
