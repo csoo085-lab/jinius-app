@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { parseBankFile, dedupKey } from "@/lib/bankParser";
 import { ExpenseModal, won, shiftMonth, dateLabel, evidenceOk } from "@/components/ExpensesManager";
 import { matchRecurring, periodLabel, normPayer, unitLabel } from "@/lib/recurring";
+import MonthPick from "@/components/MonthPick";
 
 const MATCH_DAYS = 7; // 출금일과 지출일이 이 날짜 안이면 같은 건으로 자동 연결
 
@@ -259,7 +260,7 @@ export default function BankTransactionsManager({
       <div className="card mb-4">
         <div className="flex items-center justify-between mb-4">
           <button className="btn-ghost text-xs" onClick={() => goMonth(shiftMonth(month, -1))}>‹ 이전</button>
-          <div className="font-bold text-base">{y}년 {Number(m)}월</div>
+          <div className="font-bold text-base"><MonthPick month={month} onChange={goMonth}>{y}년 {Number(m)}월</MonthPick></div>
           <button className="btn-ghost text-xs" onClick={() => goMonth(shiftMonth(month, 1))}>다음 ›</button>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center">
