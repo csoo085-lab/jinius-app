@@ -205,6 +205,8 @@ export default async function MoneyPage({ searchParams }) {
     const { data: charges, error: chErr } = await supabase.from("fee_charges").select("*")
       .eq("building_id", buildingId).lte("month", month).order("month", { ascending: true });
     const { data: fia } = await supabase.from("buildings").select("fee_item_accounts").eq("id", buildingId).maybeSingle();
+    const { data: op, error: opErr } = await supabase.from("buildings").select("bookkeeping_opening").eq("id", buildingId).maybeSingle();
+    const opening = op?.bookkeeping_opening?.date ? op.bookkeeping_opening : null;
     let deposits = [];
     if (charges?.length) {
       const { data: dep } = await supabase.from("bank_transactions")
@@ -221,6 +223,8 @@ export default async function MoneyPage({ searchParams }) {
         deposits={deposits}
         units={unitRows || []}
         itemAccounts={fia?.fee_item_accounts || {}}
+        opening={opening}
+        openingReady={!opErr}
         recurring={recurring || []}
         recurringReady={!recErr}
         buildingId={buildingId}
