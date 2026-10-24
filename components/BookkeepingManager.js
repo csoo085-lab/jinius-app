@@ -11,6 +11,9 @@ import {
 } from "@/lib/accounts";
 import { won, shiftMonth } from "@/components/ExpensesManager";
 import RecurringExpenses from "@/components/RecurringExpenses";
+import { findTransfers, isTransferItem } from "@/lib/transfers";
+import { matchRecurring } from "@/lib/recurring";
+import FeeCharges from "@/components/FeeCharges";
 import MonthPick from "@/components/MonthPick";
 
 const NAVY = "#1f2a44";
@@ -32,6 +35,7 @@ function chunk(arr, n) {
 export default function BookkeepingManager({
   buildingId, buildingName, month, settings, accounts, txns, expenses, canManage, setupNeeded,
   recurring = [], recurringReady = true,
+  charges = [], chargesReady = true, deposits = [], units = [], itemAccounts = {},
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -64,7 +68,9 @@ export default function BookkeepingManager({
   // ---------- 분개 (1월~이번 달) ----------
   const journalAll = useMemo(() => (enabled ? buildJournal({
     accounts, txns, expenses, bankMap: settings.bankMap || {}, cashCode: settings.cashCode, cardCode: settings.cardCode, recurring,
-  }) : []), [enabled, accounts, txns, expenses, settings, recurring]);
+    // 올해 1월 ~ 이번 달에 장부일이 있는 부과만
+    charges: charges.filter((c) => c.charge_date >= `${month.slice(0, 4)}-01-01` && c.charge_date < `${shiftMonth(month, 1)}-01`),
+  }) : []), [enabled, accounts, txns, expenses, settings, recurring, charges, month]);
   const journal = useMemo(() => {
     const list = journalAll.filter((e) => inMonth(e.date));
     list.forEach((e, i) => { e.mno = i + 1; });
@@ -104,14 +110,18 @@ export default function BookkeepingManager({
   // ---------- 수입·지출 장부 (복식부기 미사용 건물도) ----------
   const cashbook = useMemo(() => {
     const rows = [];
+    const xf = findTransfers(txns);
     txns.filter((t) => inMonth(t.txn_date)).forEach((t) => {
       const e = t.expense_id ? expenses.find((x) => x.id === t.expense_id) : null;
+      const x = xf[t.id];
+      // 내 통장 간 이체는 수입·지출 합계에서 뺌
+      const isX = !!x || (t.direction === "출금" && !e && isTransferItem(matchRecurring(t, recurring)));
       rows.push({
         at: t.txn_at, date: t.txn_date, via: t.account_label || "통장",
-        desc: e ? `${e.description}${e.vendor ? ` (${e.vendor})` : ""}` : (t.description || t.txn_type || ""),
-        cat: e?.category || (t.direction === "입금" ? (t.txn_type || "") : ""),
+        desc: isX ? `통장 간 이체${x ? ` (${x.from} → ${x.to})` : ""} · ${t.description || ""}` : e ? `${e.description}${e.vendor ? ` (${e.vendor})` : ""}` : (t.description || t.txn_type || ""),
+        cat: isX ? "통장 이체" : e?.category || (t.direction === "입금" ? (t.txn_type || "") : ""),
         inc: t.direction === "입금" ? Number(t.amount) : 0, out: t.direction === "출금" ? Number(t.amount) : 0,
-        bal: t.balance,
+        bal: t.balance, xfer: isX,
       });
     });
     expenses.filter((e) => inMonth(e.expense_date) && (e.payment_method === "카드" || e.payment_method === "현금")).forEach((e) => {
@@ -122,9 +132,9 @@ export default function BookkeepingManager({
     });
     rows.sort((a, b) => (a.at || "").localeCompare(b.at || ""));
     return rows;
-  }, [txns, expenses, month]); // eslint-disable-line react-hooks/exhaustive-deps
-  const cbIn = cashbook.reduce((s, r) => s + r.inc, 0);
-  const cbOut = cashbook.reduce((s, r) => s + r.out, 0);
+  }, [txns, expenses, month, recurring]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cbIn = cashbook.reduce((s, r) => s + (r.xfer ? 0 : r.inc), 0);
+  const cbOut = cashbook.reduce((s, r) => s + (r.xfer ? 0 : r.out), 0);
 
   if (setupNeeded) {
     return (
@@ -169,6 +179,9 @@ export default function BookkeepingManager({
             </div>
           )}
         </div>
+
+        <FeeCharges buildingId={buildingId} month={month} charges={charges} deposits={deposits} units={units}
+          accounts={enabled ? accounts : []} itemAccounts={itemAccounts} canManage={canManage} ready={chargesReady} />
 
         <RecurringExpenses buildingId={buildingId} month={month} items={recurring} txns={txns} accounts={enabled ? accounts : []}
           canManage={canManage} ready={recurringReady} />
@@ -255,7 +268,7 @@ function CashbookTable({ rows }) {
         </tr></thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} className="border-b">
+            <tr key={i} className={"border-b " + (r.xfer ? "text-inkDim" : "")}>
               <td className="whitespace-nowrap">{md(r.date)}</td>
               <td className="text-xs text-inkDim whitespace-nowrap">{r.via}</td>
               <td className="min-w-[10rem]">{r.desc}{r.cat && <span className="text-xs text-inkDim"> · {r.cat}</span>}</td>
@@ -467,7 +480,7 @@ function PrintReports({ kind, buildingName, month, accounts, byCode, journal, to
   if (kind === "cashbook") {
     let run = 0;
     const rows = cashbook.map((r, i) => {
-      run += r.inc - r.out;
+      if (!r.xfer) run += r.inc - r.out;
       return (
         <tr key={i}>
           <td className={TD}>{md(r.date)}</td><td className={TD + " truncate"}>{r.via}</td>
