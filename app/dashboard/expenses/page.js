@@ -73,6 +73,14 @@ export default async function MoneyPage({ searchParams }) {
   }
   const buildingName = buildings.find((b) => b.id === buildingId)?.name || "";
 
+  // 건물별 승인 금액 기준 (expense_procedure.sql 실행 전이면 기본값)
+  const { data: bRow } = await supabase.from("buildings")
+    .select("expense_approval_t1, expense_approval_t2").eq("id", buildingId).maybeSingle();
+  const thresholds = {
+    t1: Number(bRow?.expense_approval_t1) || 500000,
+    t2: Number(bRow?.expense_approval_t2) || 3000000,
+  };
+
   const tab = TABS.some((t) => t.key === searchParams?.tab) ? searchParams.tab : DEFAULT_TAB;
   const month = /^\d{4}-\d{2}$/.test(searchParams?.month || "") ? searchParams.month : thisMonthKST();
 
@@ -135,6 +143,7 @@ export default async function MoneyPage({ searchParams }) {
         expenses={allExpenses}
         receiptsByExpense={receiptsByExpense}
         linkedExpenseIds={Array.from(new Set((linkedRows || []).map((r) => r.expense_id)))}
+        thresholds={thresholds}
         canManage={canManage}
         setupNeeded={!!error}
       />
@@ -177,6 +186,7 @@ export default async function MoneyPage({ searchParams }) {
     body = (
       <ExpensesManager
         txnByExpense={txnByExpense}
+        thresholds={thresholds}
         buildingName={buildingName}
         buildingId={buildingId}
         month={month}
