@@ -16,19 +16,54 @@ const CATEGORY_COLORS = {
 };
 const PAYMENT_METHODS = ["계좌이체", "카드", "현금", "자동이체"];
 
-// 증빙 종류 (RCMS 방식). required: "선택필수" 묶음 중 하나는 반드시 있어야 '정상'
+// ---------- 지출 유형과 절차 단계 (집합건물법·관리규약 기준) ----------
+// 보수·구매: 6단계를 순서대로 증빙 / 소모품·정기 지출: 지급(지출증빙) 단계만
+export const EXPENSE_KINDS = [
+  { key: "보수·구매", desc: "공용부분 보수·교체·구매 — 6단계 절차를 순서대로 증빙" },
+  { key: "소모품", desc: "단순 소모품 구매 — 지출증빙만" },
+  { key: "정기 지출", desc: "전기·수도·보험료·정기 용역 등 — 지출증빙만" },
+];
+// 분류를 고르면 지출 유형을 먼저 추천 (직접 바꿀 수 있음)
+export function kindForCategory(c) {
+  if (["전기·수도·가스", "보험료", "세금·공과금", "인건비·용역비"].includes(c)) return "정기 지출";
+  if (c === "소모품·비품") return "소모품";
+  return "보수·구매";
+}
+export const DEFAULT_APPROVAL = { t1: 500000, t2: 3000000 }; // 관리위원회 의결 / 관리단집회 결의 기준 금액
+
+export const STAGES = [
+  { no: 1, name: "요청", desc: "지출이 필요한 이유", rule: "any", docs: [
+    { key: "작업 전 사진", hint: "보수 전 상태·고장 부위" },
+    { key: "요청·지적사항", hint: "민원, 점검 지적서, 구매 요청서" },
+  ] },
+  { no: 2, name: "견적", desc: "서로 다른 업체 견적서 2개 이상", rule: "quote2", docs: [
+    { key: "견적서", hint: "2개 이상 필수" },
+  ] },
+  { no: 3, name: "승인", desc: "금액에 맞는 승인 서류", rule: "approval", docs: [
+    { key: "관리인 결재", hint: "결재서·품의서" },
+    { key: "관리위원회 의결서" },
+    { key: "관리단집회 결의서", hint: "의사록 또는 서면결의서" },
+  ] },
+  { no: 4, name: "계약·발주", desc: "계약서 또는 발주서", rule: "any", docs: [
+    { key: "계약서" },
+    { key: "발주서", hint: "발주 문자·메일 캡처도 가능" },
+  ] },
+  { no: 5, name: "완료·검수", desc: "완료 사진과 보고서", rule: "all", docs: [
+    { key: "작업 후 사진", hint: "완료·납품 상태" },
+    { key: "보고서", hint: "작업·점검·완료 보고서 (최대 4개)", max: 4 },
+  ] },
+  { no: 6, name: "지급", desc: "지출증빙 1개 이상 + 통장 출금 확인", rule: "pay", docs: [
+    { key: "세금계산서", required: true },
+    { key: "카드매출전표", required: true },
+    { key: "현금영수증·간이영수증", required: true },
+    { key: "거래명세서" },
+    { key: "이체확인증" },
+  ] },
+];
+// 증빙 종류 전체 (단계 순서). '기타'는 단계와 관계없이 언제든 첨부 가능
 export const DOC_TYPES = [
-  { key: "세금계산서", required: true },
-  { key: "카드매출전표", required: true },
-  { key: "현금영수증·간이영수증", required: true },
-  { key: "거래명세서" },
-  { key: "견적서" },
-  { key: "계약서" },
-  { key: "작업 전 사진", hint: "수선·교체 전 상태" },
-  { key: "작업 후 사진", hint: "수선·교체 후 완료 상태" },
-  { key: "보고서", hint: "시설 보수 시 작업·점검·완료 보고서 (최대 4개)", max: 4 },
-  { key: "이체확인증" },
-  { key: "기타" },
+  ...STAGES.flatMap((s) => s.docs.map((d) => ({ ...d, stage: s.no }))),
+  { key: "기타", stage: 0 },
 ];
 // 예전 이름으로 저장된 종류는 새 이름으로 보여줌
 const LEGACY_DOC = { "작업완료 사진": "작업 후 사진" };
@@ -36,11 +71,61 @@ export const normDoc = (t) => LEGACY_DOC[t] || t || "기타";
 const REQUIRED_TYPES = DOC_TYPES.filter((d) => d.required).map((d) => d.key);
 const FILE_ACCEPT = "image/*,application/pdf,.xls,.xlsx,.xlsm,.csv,.hwp,.hwpx,.doc,.docx,.ppt,.pptx";
 
-// 증빙파일 판정: 선택필수(세금계산서·카드매출전표·현금영수증) 중 하나라도 있으면 정상
-export const evidenceOk = (receipts) => (receipts || []).some((r) => REQUIRED_TYPES.includes(r.doc_type));
+const manwon = (n) => (n % 10000 === 0 ? `${(n / 10000).toLocaleString("ko-KR")}만 원` : `${Number(n).toLocaleString("ko-KR")}원`);
+
+// 승인 단계: 금액에 따라 필요한 서류 (윗선 승인은 아랫선을 대신할 수 있음)
+export function approvalNeed(amount, th = DEFAULT_APPROVAL) {
+  const a = Number(amount) || 0;
+  if (a >= th.t2) return { types: ["관리단집회 결의서"], text: `${manwon(th.t2)} 이상 → 관리단집회 결의서 필요` };
+  if (a >= th.t1) return { types: ["관리위원회 의결서", "관리단집회 결의서"], text: `${manwon(th.t1)} 이상 → 관리위원회 의결서 필요 (관리단집회 결의서도 가능)` };
+  return { types: ["관리인 결재", "관리위원회 의결서", "관리단집회 결의서"], text: `${manwon(th.t1)} 미만 → 관리인 결재로 가능` };
+}
+
+function docCounts(receipts) {
+  const cnt = {};
+  (receipts || []).forEach((r) => { const k = normDoc(r.doc_type); cnt[k] = (cnt[k] || 0) + 1; });
+  return cnt;
+}
+
+function stageDone(s, cnt, amount, th, paid) {
+  switch (s.rule) {
+    case "any": return s.docs.some((d) => cnt[d.key] > 0);
+    case "quote2": return (cnt["견적서"] || 0) >= 2;
+    case "approval": return approvalNeed(amount, th).types.some((t) => cnt[t] > 0);
+    case "all": return s.docs.every((d) => cnt[d.key] > 0);
+    case "pay": return REQUIRED_TYPES.some((t) => cnt[t] > 0) && paid;
+    default: return true;
+  }
+}
+
+// 절차 진행 상태 계산
+//  - 앞 단계가 끝나지 않으면 뒤 단계는 잠김 (긴급 보수는 승인 단계만 나중에 해도 됨)
+export function procedure(expense, receipts, txn, th = DEFAULT_APPROVAL) {
+  const kind = expense?.expense_kind || "보수·구매";
+  const urgent = kind === "보수·구매" && !!expense?.is_urgent;
+  const cnt = docCounts(receipts);
+  const paid = !!txn || expense?.payment_method === "카드" || expense?.payment_method === "현금";
+  const list = (kind === "보수·구매" ? STAGES : STAGES.filter((s) => s.no === 6))
+    .map((s) => ({ ...s, done: stageDone(s, cnt, expense?.amount, th, paid) }));
+  list.forEach((s, i) => {
+    s.locked = list.slice(0, i).some((p) => !p.done && !(urgent && p.no === 3));
+  });
+  const cur = list.find((s) => !s.done) || null;
+  let label = "절차 완료";
+  if (cur) {
+    if (cur.no === 6) {
+      const evid = REQUIRED_TYPES.some((t) => cnt[t] > 0);
+      label = !evid ? "지출증빙 대기" : "출금 확인 대기";
+    } else label = `${cur.no}단계 ${cur.name} 대기`;
+  }
+  return { kind, urgent, stages: list, done: !cur, current: cur, label, paid, counts: cnt };
+}
+
+// 지출증빙 판정: 선택필수(세금계산서·카드매출전표·현금영수증) 중 하나라도 있으면 정상
+export const evidenceOk = (receipts) => (receipts || []).some((r) => REQUIRED_TYPES.includes(normDoc(r.doc_type)));
 // 증빙구분 (RCMS의 '증빙구분' 열)
 export function evidenceType(receipts) {
-  const types = (receipts || []).map((r) => r.doc_type);
+  const types = (receipts || []).map((r) => normDoc(r.doc_type));
   if (types.includes("세금계산서")) return "세금계산서";
   if (types.includes("카드매출전표")) return "카드";
   if (types.includes("현금영수증·간이영수증")) return "현금영수증";
@@ -86,6 +171,7 @@ const reviewTone = (s) => (s === "정상" ? "good" : s === "미흡" ? "bad" : "m
 
 export default function ExpensesManager({
   buildingName, buildingId, month, expenses, receiptsByExpense, txnByExpense = {}, canManage, setupNeeded, embedded = false,
+  thresholds = DEFAULT_APPROVAL,
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -94,6 +180,7 @@ export default function ExpensesManager({
   const [filter, setFilter] = useState("전체");
   const [printUrls, setPrintUrls] = useState(null); // 출력 준비 중일 때 { storage_path: 서명URL }
   const [preparing, setPreparing] = useState(false);
+  const [settingOpen, setSettingOpen] = useState(false);
 
   // 출력: 영수증 사진 주소를 받아 모두 불러온 뒤 인쇄 창을 띄움
   async function handlePrint() {
@@ -136,7 +223,9 @@ export default function ExpensesManager({
 
   const evOk = (e) => evidenceOk(receiptsByExpense[e.id]);
   const trSt = (e) => transferStatus(e, txnByExpense[e.id]);
+  const procOf = (e) => procedure(e, receiptsByExpense[e.id], txnByExpense[e.id], thresholds);
   const counts = {
+    "절차 미완료": expenses.filter((e) => !procOf(e).done).length,
     "증빙 미흡": expenses.filter((e) => !evOk(e)).length,
     "이체 미확인": expenses.filter((e) => trSt(e) === "미확인").length,
     "점검 미흡": expenses.filter((e) => e.review_status === "미흡").length,
@@ -144,6 +233,7 @@ export default function ExpensesManager({
   };
   const pass = (e) => {
     if (filter === "전체") return true;
+    if (filter === "절차 미완료") return !procOf(e).done;
     if (filter === "증빙 미흡") return !evOk(e);
     if (filter === "이체 미확인") return trSt(e) === "미확인";
     if (filter === "점검 미흡") return e.review_status === "미흡";
@@ -182,6 +272,9 @@ export default function ExpensesManager({
           </div>
         )}
         <div className="flex gap-2 shrink-0">
+          {canManage && (
+            <button className="btn-ghost" onClick={() => setSettingOpen(true)} title="승인 금액 기준">⚙ 승인 기준</button>
+          )}
           <button className="btn-ghost" onClick={handlePrint} disabled={preparing || expenses.length === 0}>
             {preparing ? "출력 준비 중…" : "🖨 출력"}
           </button>
@@ -256,6 +349,7 @@ export default function ExpensesManager({
                   <th>분류</th>
                   <th>내용 · 거래처</th>
                   <th className="text-right">금액(원)</th>
+                  <th className="text-center">절차</th>
                   <th className="text-center">증빙파일</th>
                   <th className="text-center">이체상태</th>
                   <th className="text-center pr-5">점검</th>
@@ -281,6 +375,9 @@ export default function ExpensesManager({
                         <div className="text-xs text-inkDim truncate max-w-[16rem]">{e.vendor || "-"}{e.payment_method ? ` · ${e.payment_method}` : ""}</div>
                       </td>
                       <td className="text-right font-semibold whitespace-nowrap">{won(e.amount)}</td>
+                      <td className="text-center">
+                        <ProcPill proc={procOf(e)} />
+                      </td>
                       <td className="text-center">
                         <Pill tone={evidenceOk(rcs) ? "ok" : "warn"}>{evidenceOk(rcs) ? "정상" : "미흡"}</Pill>
                         {rcs.length > 0 && <div className="text-[10px] text-inkDim mt-0.5">{rcs.length}개 파일</div>}
@@ -320,7 +417,8 @@ export default function ExpensesManager({
                     </span>
                     <span className="font-bold text-[15px] shrink-0">{won(e.amount)}원</span>
                   </div>
-                  <div className="flex gap-1.5 mt-2 ml-[3.25rem]">
+                  <div className="flex flex-wrap gap-1.5 mt-2 ml-[3.25rem]">
+                    <ProcPill proc={procOf(e)} />
                     <Pill tone={evidenceOk(rcs) ? "ok" : "warn"}>증빙 {evidenceOk(rcs) ? "정상" : "미흡"}</Pill>
                     {tr !== "-" && <Pill tone={tr === "집행 완료" ? "good" : "warn"}>{tr === "미확인" ? "이체 미확인" : tr}</Pill>}
                     <Pill tone={reviewTone(e.review_status || "미확인")}>점검 {e.review_status || "미확인"}</Pill>
@@ -342,10 +440,16 @@ export default function ExpensesManager({
           expenses={ordered}
           receiptsByExpense={receiptsByExpense}
           txnByExpense={txnByExpense}
+          thresholds={thresholds}
           byCategory={byCategory}
           total={total}
           urls={printUrls}
         />
+      )}
+
+      {settingOpen && (
+        <ApprovalSettings buildingId={buildingId} buildingName={buildingName} thresholds={thresholds}
+          onClose={() => setSettingOpen(false)} onSaved={() => { setSettingOpen(false); router.refresh(); }} />
       )}
 
       {editing && (
@@ -355,11 +459,67 @@ export default function ExpensesManager({
           expense={editing === "new" ? null : editing}
           receipts={editing === "new" ? [] : receiptsByExpense[editing.id] || []}
           txn={editing === "new" ? null : txnByExpense[editing.id]}
+          thresholds={thresholds}
           canManage={canManage}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); router.refresh(); }}
         />
       )}
+    </div>
+  );
+}
+
+// 절차 진행 배지
+function ProcPill({ proc }) {
+  if (proc.done) return <Pill tone="good">절차 완료</Pill>;
+  return (
+    <span className="inline-flex flex-col items-center">
+      <Pill tone={proc.current?.no === 6 ? "warn" : "bad"}>{proc.label}</Pill>
+      {proc.kind === "보수·구매" && <span className="text-[10px] text-inkDim mt-0.5">{proc.stages.filter((s) => s.done).length}/6단계{proc.urgent ? " · 긴급" : ""}</span>}
+    </span>
+  );
+}
+
+// 건물별 승인 금액 기준 설정 (관리자)
+function ApprovalSettings({ buildingId, buildingName, thresholds, onClose, onSaved }) {
+  const supabase = createClient();
+  const [t1, setT1] = useState(String(thresholds.t1));
+  const [t2, setT2] = useState(String(thresholds.t2));
+  const [saving, setSaving] = useState(false);
+  const num = (v) => Number(String(v).replace(/[^\d]/g, "")) || 0;
+  async function save() {
+    if (!num(t1) || !num(t2) || num(t1) >= num(t2)) { alert("관리위원회 기준 금액이 관리단집회 기준 금액보다 작아야 합니다."); return; }
+    setSaving(true);
+    const { error } = await supabase.from("buildings")
+      .update({ expense_approval_t1: num(t1), expense_approval_t2: num(t2) }).eq("id", buildingId);
+    setSaving(false);
+    if (error) { alert("저장 실패: " + error.message); return; }
+    onSaved();
+  }
+  const field = (label, v, set, help) => (
+    <label className="block text-xs font-semibold text-inkDim mb-3">{label}
+      <div className="relative mt-1">
+        <input inputMode="numeric" className="pr-10 text-lg font-bold text-ink" value={v ? won(num(v)) : ""} onChange={(e) => set(e.target.value.replace(/[^\d]/g, ""))} />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-inkDim">원</span>
+      </div>
+      <span className="block font-normal mt-1">{help}</span>
+    </label>
+  );
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center sm:p-4 z-50" onClick={onClose}>
+      <div className="bg-surface w-full sm:max-w-md p-5 rounded-t-3xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+        <div className="font-bold text-lg">승인 금액 기준</div>
+        <div className="text-sm text-inkDim mb-4">{buildingName} · 관리규약에 정한 금액이 있으면 그 금액으로 맞춰주세요. (부가세 포함)</div>
+        {field("관리위원회 의결이 필요한 금액 (이상)", t1, setT1, "이 금액 미만은 관리인 결재로 가능")}
+        {field("관리단집회 결의가 필요한 금액 (이상)", t2, setT2, "의사록 또는 서면결의서")}
+        <div className="rounded-xl bg-surface2 px-3 py-2 text-xs text-inkDim mb-5">
+          공용부분의 변경(구조·용도가 바뀌는 공사)은 금액과 관계없이 관리단집회 결의가 필요합니다. 해당 공사는 관리단집회 결의서를 첨부해주세요.
+        </div>
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onClose}>취소</button>
+          <button className="btn" disabled={saving} onClick={save}>{saving ? "저장 중…" : "저장"}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -395,7 +555,7 @@ function PrintPage({ title, right, page, pages, footLeft, footRight, children })
   );
 }
 
-function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExpense, byCategory, total, urls }) {
+function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExpense, thresholds, byCategory, total, urls }) {
   const [y, m] = month.split("-");
   const mm = Number(m);
   const lastDay = new Date(Number(y), mm, 0).getDate();
@@ -406,6 +566,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
   const trDone = expenses.filter((e) => transferStatus(e, txnByExpense[e.id]) === "집행 완료").length;
   const trNeed = expenses.filter((e) => transferStatus(e, txnByExpense[e.id]) === "미확인").length;
   const rvOk = expenses.filter((e) => e.review_status === "정상").length;
+  const procDone = expenses.filter((e) => procedure(e, receiptsByExpense[e.id], txnByExpense[e.id], thresholds).done).length;
   const rvBad = expenses.filter((e) => e.review_status === "미흡").length;
 
   // 표 쪽 나누기
@@ -457,7 +618,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
                   <tbody>
                     <tr className="border-b border-black/15">
                       <td className="px-2 py-2 font-semibold bg-black/5">현황</td>
-                      <td className="px-2 py-2 font-bold">{won(total)}원 · {expenses.length}건</td>
+                      <td className="px-2 py-2 font-bold">{won(total)}원 · {expenses.length}건<div className="font-normal text-[8.5pt]">절차 완료 {procDone}건 · 미완료 {expenses.length - procDone}건</div></td>
                       <td className="px-2 py-2">정상 {okCnt}건 · 미흡 {expenses.length - okCnt}건</td>
                       <td className="px-2 py-2">집행 완료 {trDone}건 · 미확인 {trNeed}건</td>
                       <td className="px-2 py-2">정상 {rvOk}건 · 미흡 {rvBad}건 · 점검 전 {expenses.length - rvOk - rvBad}건</td>
@@ -484,13 +645,13 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
 
             <table className="w-full border-collapse table-fixed">
               <colgroup>
-                <col style={{ width: "7%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "10%" }} />
-                <col style={{ width: "12%" }} /><col /><col style={{ width: "14%" }} /><col style={{ width: "12%" }} />
-                <col style={{ width: "7%" }} /><col style={{ width: "7%" }} />
+                <col style={{ width: "5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "9%" }} />
+                <col style={{ width: "11%" }} /><col /><col style={{ width: "12%" }} /><col style={{ width: "11%" }} />
+                <col style={{ width: "10%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} />
               </colgroup>
               <thead>
                 <tr style={{ background: NAVY }}>
-                  {["No", "사용일자", "이체일자", "증빙구분", "분류", "내용", "거래처", "금액(원)", "증빙", "점검"].map((h) => (
+                  {["No", "사용일자", "이체일자", "증빙구분", "분류", "내용", "거래처", "금액(원)", "절차", "증빙", "점검"].map((h) => (
                     <th key={h} className={th + (h === "금액(원)" ? " text-right" : " text-center")}>{h}</th>
                   ))}
                 </tr>
@@ -510,6 +671,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
                       <td className={td}>{e.description || "-"}</td>
                       <td className={td}>{e.vendor || "-"}</td>
                       <td className={td + " text-right font-semibold"}>{won(e.amount)}</td>
+                      <td className={td + " text-center"}>{(() => { const pr = procedure(e, rcs, tx, thresholds); return pr.done ? "완료" : pr.current.no === 6 ? "지급 대기" : `${pr.current.no}단계`; })()}</td>
                       <td className={td + " text-center font-semibold"} style={{ color: ok ? "#1b64da" : "#c2410c" }}>{ok ? "정상" : "미흡"}</td>
                       <td className={td + " text-center"}>{e.review_status || "미확인"}</td>
                     </tr>
@@ -519,7 +681,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
                   <tr className="font-bold" style={{ background: "rgba(0,0,0,0.05)" }}>
                     <td className={td + " text-center"} colSpan={7}>월 합계 ({expenses.length}건)</td>
                     <td className={td + " text-right"}>{won(total)}</td>
-                    <td className={td} colSpan={2}></td>
+                    <td className={td} colSpan={3}></td>
                   </tr>
                 )}
               </tbody>
@@ -529,6 +691,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
               <div className="mt-3 text-[8.5pt] leading-relaxed text-black/75">
                 <div>※ 증빙 '정상'은 세금계산서·카드매출전표·현금영수증(간이영수증) 중 하나 이상이 첨부된 경우입니다.</div>
                 <div>※ 이체일자는 관리비 통장 출금 내역과 연결된 날짜이며, 카드·현금 결제는 '-'로 표시됩니다.</div>
+                <div>※ 절차: 공용부분 보수·구매는 요청→견적(2곳 이상)→승인({manwon(thresholds.t1)} 이상 관리위원회, {manwon(thresholds.t2)} 이상 관리단집회)→계약·발주→완료·검수→지급 순으로 증빙합니다. 소모품·정기 지출은 지출증빙만 확인합니다.</div>
                 <div>※ 출력일 {today} · 세부 증빙은 지니어스 앱 [통장·지출]에서도 확인할 수 있습니다.</div>
               </div>
             )}
@@ -571,7 +734,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
 }
 
 // prefill: 통장 거래에서 [지출로 등록]을 눌렀을 때 미리 채울 값 { expense_date, amount, description, vendor }
-export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, onClose, onSaved, prefill }) {
+export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, onClose, onSaved, prefill, thresholds = DEFAULT_APPROVAL }) {
   const supabase = createClient();
   const isEdit = !!expense;
   const readOnly = !canManage;
@@ -585,6 +748,9 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   const [memo, setMemo] = useState(expense?.memo || "");
   const [reviewStatus, setReviewStatus] = useState(expense?.review_status || "미확인");
   const [reviewMemo, setReviewMemo] = useState(expense?.review_memo || "");
+  const [kind, setKind] = useState(expense?.expense_kind || kindForCategory(init.category || EXPENSE_CATEGORIES[0]));
+  const [kindTouched, setKindTouched] = useState(isEdit);
+  const [urgent, setUrgent] = useState(!!expense?.is_urgent);
   const [newFiles, setNewFiles] = useState([]); // [{ file, docType, preview }]
   const [existing, setExisting] = useState(receipts.map((r) => ({ ...r, doc_type: normDoc(r.doc_type) })));
   const [typeChanges, setTypeChanges] = useState({}); // 기존 파일 종류 변경 { id: docType }
@@ -617,6 +783,13 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
 
   function addFilesOf(docType, files) {
     let picked = Array.from(files || []);
+    const st = DOC_TYPES.find((d) => d.key === docType)?.stage;
+    const lockedStage = liveProc.stages.find((s) => s.no === st && s.locked);
+    if (lockedStage) {
+      const need = liveProc.stages.find((s) => !s.done && s.no < st && !(liveProc.urgent && s.no === 3));
+      alert(`${lockedStage.no}단계(${lockedStage.name})는 아직 첨부할 수 없어요.\n먼저 ${need ? `${need.no}단계(${need.name}) — ${need.desc}` : "앞 단계"}를 완료해주세요.`);
+      return;
+    }
     const max = DOC_TYPES.find((d) => d.key === docType)?.max;
     if (max) {
       const room = Math.max(0, max - countOf(docType));
@@ -652,6 +825,11 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
     ...newFiles.map((n) => ({ doc_type: n.docType })),
   ];
   const okNow = evidenceOk(currentDocs);
+  const amtNum = Number(String(amount).replace(/[^\d]/g, "")) || 0;
+  const liveProc = procedure(
+    { expense_kind: kind, is_urgent: urgent, amount: amtNum, payment_method: payment },
+    currentDocs, txn, thresholds,
+  );
 
   async function save() {
     const amt = Number(String(amount).replace(/[^\d]/g, ""));
@@ -662,6 +840,7 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
       expense_date: date, amount: amt, category,
       description: description.trim(), vendor: vendor.trim(), payment_method: payment, memo: memo.trim(),
       review_status: reviewStatus, review_memo: reviewMemo.trim(),
+      expense_kind: kind, is_urgent: kind === "보수·구매" && urgent,
       reviewed_at: reviewStatus !== (expense?.review_status || "미확인") ? new Date().toISOString() : expense?.reviewed_at || null,
     };
     let expenseId = expense?.id;
@@ -729,6 +908,65 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
     </div>
   );
 
+  // 증빙 종류 한 줄 (칸 이름, 버튼, 미리보기)
+  function renderDocRow(d, locked) {
+    const ex = existing.filter((r) => (typeChanges[r.id] || r.doc_type) === d.key);
+    const nw = newFiles.map((n, i) => ({ ...n, i })).filter((n) => n.docType === d.key);
+    const has = ex.length + nw.length > 0;
+    if (readOnly && !has) return null;
+    const full = d.max && ex.length + nw.length >= d.max;
+    return (
+      <div key={d.key} {...(locked ? {} : rowDrop(d.key))}
+        className={"px-3 py-2 transition-colors " + (dragType === d.key ? "bg-accent/10" : dragAny && !locked ? "bg-surface2/60" : "")}>
+        <div className="flex items-center gap-2">
+          <span className="flex-1 min-w-0 text-sm font-semibold">
+            {d.key}
+            {d.required && <span className="text-danger ml-0.5">*</span>}
+            {d.hint && <span className="text-[11px] font-normal text-inkDim ml-1">{d.hint}</span>}
+          </span>
+          {d.required && <span className="text-[11px] font-semibold text-accent">선택필수</span>}
+          {has && <span className="text-[11px] text-inkDim">{ex.length + nw.length}{d.max ? ` / ${d.max}` : ""}개</span>}
+          {!readOnly && !full && (locked ? (
+            <span className="text-[11px] text-inkDim">🔒</span>
+          ) : (
+            <>
+              <label className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center cursor-pointer hover:bg-border" title="사진 찍기">
+                📷
+                <input type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={(e) => { addFilesOf(d.key, e.target.files); e.target.value = ""; }} />
+              </label>
+              <label className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center cursor-pointer hover:bg-border text-lg font-bold text-inkDim" title="파일 추가">
+                +
+                <input type="file" accept={FILE_ACCEPT} multiple className="hidden"
+                  onChange={(e) => { addFilesOf(d.key, e.target.files); e.target.value = ""; }} />
+              </label>
+            </>
+          ))}
+        </div>
+        {has && (
+          <div className="flex gap-2 overflow-x-auto mt-2 pb-1">
+            {ex.map((r) => (
+              <Thumb key={r.id} name={r.file_name} src={urls[r.id]} onOpen={() => setViewer(urls[r.id])}
+                onRemove={readOnly ? null : () => removeExisting(r)}
+                typeSelect={!readOnly && (
+                  <select value={typeChanges[r.id] || r.doc_type}
+                    onChange={(e) => setTypeChanges((p) => ({ ...p, [r.id]: e.target.value }))}
+                    className="absolute bottom-0 inset-x-0 text-[9px] px-1 py-0.5 rounded-none bg-black/60 text-white border-0"
+                    title="종류 변경">
+                    {DOC_TYPES.map((t) => <option key={t.key} value={t.key}>{t.key}</option>)}
+                  </select>
+                )} />
+            ))}
+            {nw.map((n) => (
+              <Thumb key={"n" + n.i} name={n.file.name} src={n.preview} isNew onOpen={() => n.preview && setViewer(n.preview)}
+                onRemove={() => removeNew(n.i)} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center sm:p-4 z-50" onClick={onClose}
       onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
@@ -739,6 +977,26 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
         </div>
 
         <div className="flex flex-col gap-3">
+          <div>
+            <div className="text-xs font-semibold text-inkDim mb-1">지출 유형</div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {EXPENSE_KINDS.map((k) => (
+                <button key={k.key} type="button" disabled={readOnly}
+                  onClick={() => { setKind(k.key); setKindTouched(true); }}
+                  className={"rounded-lg py-2 text-sm font-semibold border " + (kind === k.key ? "bg-ink text-white border-ink" : "bg-surface border-border text-inkDim")}>
+                  {k.key}
+                </button>
+              ))}
+            </div>
+            <div className="text-[11px] text-inkDim mt-1">{EXPENSE_KINDS.find((k) => k.key === kind)?.desc}</div>
+            {kind === "보수·구매" && (
+              <label className="flex items-center gap-2 text-sm mt-2">
+                <input type="checkbox" disabled={readOnly} checked={urgent} onChange={(e) => setUrgent(e.target.checked)} />
+                <span><b>긴급 보수</b> <span className="text-xs text-inkDim">(누수·고장 등 — 승인 서류는 작업 후 첨부 가능)</span></span>
+              </label>
+            )}
+          </div>
+
           <label className="block text-xs font-semibold text-inkDim">금액
             <div className="relative mt-1">
               <input inputMode="numeric" placeholder="0" disabled={readOnly}
@@ -759,7 +1017,8 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
               <input type="date" className="mt-1" disabled={readOnly} value={date} onChange={(e) => setDate(e.target.value)} />
             </label>
             <label className="block text-xs font-semibold text-inkDim">분류
-              <select className="mt-1" disabled={readOnly} value={category} onChange={(e) => setCategory(e.target.value)}>
+              <select className="mt-1" disabled={readOnly} value={category}
+                onChange={(e) => { setCategory(e.target.value); if (!kindTouched) setKind(kindForCategory(e.target.value)); }}>
                 {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
               </select>
             </label>
@@ -791,73 +1050,61 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
             </div>
           )}
 
-          {/* 증빙파일 목록 (RCMS 방식) */}
+          {/* 절차 진행 + 증빙파일 목록 */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <div className="text-xs font-semibold text-inkDim">증빙파일 목록</div>
-              <Pill tone={okNow ? "ok" : "warn"}>증빙 {okNow ? "정상" : "미흡"}</Pill>
+              <div className="text-xs font-semibold text-inkDim">{kind === "보수·구매" ? "절차별 증빙파일" : "증빙파일 목록"}</div>
+              <div className="flex gap-1">
+                <Pill tone={okNow ? "ok" : "warn"}>증빙 {okNow ? "정상" : "미흡"}</Pill>
+                <Pill tone={liveProc.done ? "good" : "bad"}>{liveProc.label}</Pill>
+              </div>
             </div>
+
+            {kind === "보수·구매" && (
+              <div className="flex gap-1 mb-2">
+                {liveProc.stages.map((st) => (
+                  <div key={st.no} className="flex-1 text-center">
+                    <div className={"h-1.5 rounded-full " + (st.done ? "bg-ok" : st.locked ? "bg-border" : "bg-warn")} />
+                    <div className={"text-[10px] mt-0.5 " + (st.done ? "text-ok font-semibold" : st.locked ? "text-inkDim/60" : "text-warn font-semibold")}>
+                      {st.done ? "✓" : st.locked ? "🔒" : "●"} {st.name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {!readOnly && (
               <div className="text-[11px] text-inkDim mb-2">
-                <b className="text-accent">선택필수</b> 3가지 중 하나는 꼭 올려주세요.
+                {kind === "보수·구매"
+                  ? <>앞 단계 증빙이 갖춰져야 다음 단계에 첨부할 수 있어요.{liveProc.urgent && <b className="text-danger"> 긴급 보수: 승인(3단계)은 나중에 첨부해도 돼요.</b>}</>
+                  : <><b className="text-accent">선택필수</b> 3가지 중 하나만 올리면 돼요.</>}
                 <span className="hidden md:inline"> 파일을 해당 칸 위로 끌어다 놓아도 돼요.</span>
               </div>
             )}
-            <div className="rounded-xl border border-border divide-y divide-border">
-              {DOC_TYPES.map((d) => {
-                const ex = existing.filter((r) => (typeChanges[r.id] || r.doc_type) === d.key);
-                const nw = newFiles.map((n, i) => ({ ...n, i })).filter((n) => n.docType === d.key);
-                const has = ex.length + nw.length > 0;
-                if (readOnly && !has) return null;
+
+            <div className="rounded-xl border border-border overflow-hidden">
+              {(kind === "보수·구매" ? liveProc.stages : liveProc.stages).map((st) => {
+                const rows = st.docs.map((d) => ({ ...d, stage: st.no }));
+                const needText = st.rule === "approval" ? approvalNeed(amtNum, thresholds).text
+                  : st.rule === "quote2" ? `견적서 ${liveProc.counts["견적서"] || 0} / 2개` : st.desc;
                 return (
-                  <div key={d.key} {...rowDrop(d.key)}
-                    className={"px-3 py-2 transition-colors " + (dragType === d.key ? "bg-accent/10" : dragAny ? "bg-surface2/60" : "")}>
-                    <div className="flex items-center gap-2">
-                      <span className="flex-1 min-w-0 text-sm font-semibold">
-                        {d.key}
-                        {d.required && <span className="text-danger ml-0.5">*</span>}
-                        {d.hint && <span className="text-[11px] font-normal text-inkDim ml-1">{d.hint}</span>}
-                      </span>
-                      {d.required && <span className="text-[11px] font-semibold text-accent">선택필수</span>}
-                      {has && <span className="text-[11px] text-inkDim">{ex.length + nw.length}{d.max ? ` / ${d.max}` : ""}개</span>}
-                      {!readOnly && !(d.max && ex.length + nw.length >= d.max) && (
-                        <>
-                          <label className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center cursor-pointer hover:bg-border" title="사진 찍기">
-                            📷
-                            <input type="file" accept="image/*" capture="environment" className="hidden"
-                              onChange={(e) => { addFilesOf(d.key, e.target.files); e.target.value = ""; }} />
-                          </label>
-                          <label className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center cursor-pointer hover:bg-border text-lg font-bold text-inkDim" title="파일 추가">
-                            +
-                            <input type="file" accept={FILE_ACCEPT} multiple className="hidden"
-                              onChange={(e) => { addFilesOf(d.key, e.target.files); e.target.value = ""; }} />
-                          </label>
-                        </>
-                      )}
+                  <div key={st.no} className={"border-b border-border last:border-0 " + (st.locked ? "opacity-60" : "")}>
+                    <div className={"flex items-center gap-2 px-3 py-1.5 text-xs font-semibold " + (st.done ? "bg-ok/10 text-ok" : st.locked ? "bg-surface2 text-inkDim" : "bg-warn/10 text-warn")}>
+                      <span>{st.done ? "✓" : st.locked ? "🔒" : "●"} {kind === "보수·구매" ? `${st.no}단계 ${st.name}` : "지출증빙"}</span>
+                      <span className="font-normal truncate">{st.locked ? "앞 단계를 먼저 완료하세요" : needText}</span>
                     </div>
-                    {has && (
-                      <div className="flex gap-2 overflow-x-auto mt-2 pb-1">
-                        {ex.map((r) => (
-                          <Thumb key={r.id} name={r.file_name} src={urls[r.id]} onOpen={() => setViewer(urls[r.id])}
-                            onRemove={readOnly ? null : () => removeExisting(r)}
-                            typeSelect={!readOnly && (
-                              <select value={typeChanges[r.id] || r.doc_type}
-                                onChange={(e) => setTypeChanges((p) => ({ ...p, [r.id]: e.target.value }))}
-                                className="absolute bottom-0 inset-x-0 text-[9px] px-1 py-0.5 rounded-none bg-black/60 text-white border-0"
-                                title="종류 변경">
-                                {DOC_TYPES.map((t) => <option key={t.key} value={t.key}>{t.key}</option>)}
-                              </select>
-                            )} />
-                        ))}
-                        {nw.map((n) => (
-                          <Thumb key={"n" + n.i} name={n.file.name} src={n.preview} isNew onOpen={() => n.preview && setViewer(n.preview)}
-                            onRemove={() => removeNew(n.i)} />
-                        ))}
-                      </div>
-                    )}
+                    <div className="divide-y divide-border">
+                      {rows.map((d) => renderDocRow(d, st.locked))}
+                    </div>
                   </div>
                 );
               })}
+              {/* 유형에 없는 종류지만 이미 올린 파일 + 기타 */}
+              <div className="divide-y divide-border border-t border-border">
+                {DOC_TYPES.filter((d) => d.stage !== 0 && !liveProc.stages.some((st) => st.no === d.stage) && countOf(d.key) > 0)
+                  .map((d) => renderDocRow(d, false))}
+                {renderDocRow(DOC_TYPES.find((d) => d.key === "기타"), false)}
+              </div>
               {readOnly && existing.length === 0 && <div className="px-3 py-3 text-xs text-inkDim">첨부된 증빙이 없습니다.</div>}
             </div>
           </div>
