@@ -26,6 +26,7 @@ export const DOC_TYPES = [
   { key: "계약서" },
   { key: "작업 전 사진", hint: "수선·교체 전 상태" },
   { key: "작업 후 사진", hint: "수선·교체 후 완료 상태" },
+  { key: "보고서", hint: "시설 보수 시 작업·점검·완료 보고서 (최대 4개)", max: 4 },
   { key: "이체확인증" },
   { key: "기타" },
 ];
@@ -609,8 +610,22 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   // 새 파일 미리보기 주소 정리
   useEffect(() => () => newFiles.forEach((n) => n.preview && URL.revokeObjectURL(n.preview)), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 칸별로 이미 있는 파일 수 (기존 + 새로 추가)
+  const countOf = (docType) =>
+    existing.filter((r) => (typeChanges[r.id] || r.doc_type) === docType).length +
+    newFiles.filter((n) => n.docType === docType).length;
+
   function addFilesOf(docType, files) {
-    const list = Array.from(files || []).map((file) => ({
+    let picked = Array.from(files || []);
+    const max = DOC_TYPES.find((d) => d.key === docType)?.max;
+    if (max) {
+      const room = Math.max(0, max - countOf(docType));
+      if (picked.length > room) {
+        alert(`${docType}는 최대 ${max}개까지 첨부할 수 있어요.` + (room ? ` 앞의 ${room}개만 추가합니다.` : ""));
+        picked = picked.slice(0, room);
+      }
+    }
+    const list = picked.map((file) => ({
       file, docType, preview: file.type?.startsWith("image/") ? URL.createObjectURL(file) : null,
     }));
     if (list.length) setNewFiles((prev) => [...prev, ...list]);
@@ -804,8 +819,8 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
                         {d.hint && <span className="text-[11px] font-normal text-inkDim ml-1">{d.hint}</span>}
                       </span>
                       {d.required && <span className="text-[11px] font-semibold text-accent">선택필수</span>}
-                      {has && <span className="text-[11px] text-inkDim">{ex.length + nw.length}개</span>}
-                      {!readOnly && (
+                      {has && <span className="text-[11px] text-inkDim">{ex.length + nw.length}{d.max ? ` / ${d.max}` : ""}개</span>}
+                      {!readOnly && !(d.max && ex.length + nw.length >= d.max) && (
                         <>
                           <label className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center cursor-pointer hover:bg-border" title="사진 찍기">
                             📷
