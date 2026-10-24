@@ -167,8 +167,16 @@ export default async function MoneyPage({ searchParams }) {
       (receiptsByExpense[r.expense_id] = receiptsByExpense[r.expense_id] || []).push(r);
     });
 
+    // 이체상태: 통장 출금과 연결된 지출 (거래내역 기능이 없으면 빈 값)
+    const { data: links } = ids.length
+      ? await supabase.from("bank_transactions").select("expense_id, txn_date, account_label").in("expense_id", ids)
+      : { data: [] };
+    const txnByExpense = {};
+    (links || []).forEach((t) => { txnByExpense[t.expense_id] = t; });
+
     body = (
       <ExpensesManager
+        txnByExpense={txnByExpense}
         buildingName={buildingName}
         buildingId={buildingId}
         month={month}
