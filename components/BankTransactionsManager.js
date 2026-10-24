@@ -34,7 +34,7 @@ function findMatches(txns, expenses, linkedExpenseIds) {
 }
 
 export default function BankTransactionsManager({
-  buildingId, month, txns, expenses, receiptsByExpense, linkedExpenseIds, canManage, setupNeeded, thresholds,
+  buildingId, month, txns, expenses, receiptsByExpense, linkedExpenseIds, canManage, setupNeeded, thresholds, minutes = [],
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -353,6 +353,7 @@ export default function BankTransactionsManager({
           receipts={editing.expense ? receiptsByExpense[editing.expense.id] || [] : []}
           txn={editing.expense ? editing.txn : null}
           thresholds={thresholds}
+          minutes={minutes}
           canManage={canManage}
           prefill={editing.expense ? null : {
             expense_date: editing.txn.txn_date,
