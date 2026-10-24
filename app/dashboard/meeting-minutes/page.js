@@ -41,5 +41,18 @@ export default async function MeetingMinutesPage({ searchParams }) {
     .order("meeting_date", { ascending: false })
     .order("created_at", { ascending: false });
 
-  return <MeetingMinutesManager initialMinutes={minutes || []} buildingId={buildingId} canManage={canManage} />;
+  const buildingName = buildings.find((b) => b.id === buildingId)?.name || "";
+
+  // 회의록이 증빙으로 연결된 지출 (회의록 연결 기능 SQL 실행 전이면 비어 있음)
+  const linksByMinute = {};
+  const { data: links } = await supabase
+    .from("expense_receipts")
+    .select("minute_id, doc_type, building_expenses(description, amount, expense_date)")
+    .eq("building_id", buildingId)
+    .not("minute_id", "is", null);
+  (links || []).forEach((l) => {
+    (linksByMinute[l.minute_id] = linksByMinute[l.minute_id] || []).push({ doc_type: l.doc_type, ...(l.building_expenses || {}) });
+  });
+
+  return <MeetingMinutesManager initialMinutes={minutes || []} buildingId={buildingId} buildingName={buildingName} canManage={canManage} linksByMinute={linksByMinute} />;
 }
