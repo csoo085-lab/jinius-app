@@ -16,6 +16,7 @@ import { matchRecurring } from "@/lib/recurring";
 import FeeCharges from "@/components/FeeCharges";
 import { OpeningSummary, OpeningEditor, openingLines } from "@/components/BookOpening";
 import { computeDues } from "@/lib/dues";
+import ReserveStatus from "@/components/ReserveStatus";
 import MonthPick from "@/components/MonthPick";
 
 const NAVY = "#1f2a44";
@@ -196,6 +197,10 @@ export default function BookkeepingManager({
 
         <FeeCharges buildingId={buildingId} month={month} charges={charges} deposits={deposits} units={units} opening={opening}
           accounts={enabled ? accounts : []} itemAccounts={itemAccounts} canManage={canManage} ready={chargesReady} />
+
+        {enabled && (
+          <ReserveStatus charges={charges} deposits={deposits} accounts={accounts} bankMap={settings.bankMap || {}} month={month} opening={opening} />
+        )}
 
         <RecurringExpenses buildingId={buildingId} month={month} items={recurring} txns={txns} accounts={enabled ? accounts : []}
           canManage={canManage} ready={recurringReady} dues={dues} />
