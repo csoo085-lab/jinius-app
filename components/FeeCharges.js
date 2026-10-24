@@ -7,7 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { parseFeeSheet } from "@/lib/feeSheetParser";
-import { leafAccounts, suggestFeeItemAccount } from "@/lib/accounts";
+import { leafAccounts, suggestFeeItemAccount, openingModeOf } from "@/lib/accounts";
 
 const won = (n) => Math.round(Number(n) || 0).toLocaleString("ko-KR");
 const lastDay = (month) => { const [y, m] = month.split("-").map(Number); return `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`; };
@@ -22,15 +22,18 @@ export function depositHo(t, unitsById) {
 }
 
 // 호실별 미납 = 기초 미납 + 부과 누계 − 입금 누계 (보려는 달 말일까지)
-export function unpaidByUnit({ charges, deposits, units, upto }) {
-  const list = [...charges].filter((c) => c.month <= upto).sort((a, b) => a.month.localeCompare(b.month));
+export function unpaidByUnit({ charges, deposits, units, upto, opening = null }) {
+  const list = [...charges].filter((c) => c.month <= upto && (!opening?.date || c.charge_date >= opening.date))
+    .sort((a, b) => a.month.localeCompare(b.month));
   if (!list.length) return { rows: [], unmatched: [], first: null };
   const first = list[0];
   const endDate = lastDay(upto);
   const unitsById = Object.fromEntries((units || []).map((u) => [u.id, u]));
   const rows = {};
   const row = (ho) => (rows[ho] = rows[ho] || { ho, opening: 0, charged: 0, paid: 0, sheetUnpaid: 0 });
-  (first.units || []).forEach((u) => { if (first.opening_unpaid) row(u.ho).opening += Number(u.unpaid) || 0; });
+  // 이전 미납: 회계 시작 설정이 있으면 그걸 따름 (따로 관리·장부 포함 모두 호실별 미납에는 넣음)
+  const useOpening = opening?.arrearsMode ? opening.arrearsMode !== "none" : !!Number(first.opening_unpaid);
+  (first.units || []).forEach((u) => { if (useOpening) row(u.ho).opening += Number(u.unpaid) || 0; });
   list.forEach((c) => (c.units || []).forEach((u) => {
     const r = row(u.ho);
     r.charged += (Number(u.charge) || 0) + (c.late_fee_charged ? Number(u.unpaidLate) || 0 : 0);
@@ -44,19 +47,25 @@ export function unpaidByUnit({ charges, deposits, units, upto }) {
       if (ho && rows[ho]) rows[ho].paid += Number(t.amount) || 0;
       else unmatched.push(t);
     });
-  const out = Object.values(rows).map((r) => ({ ...r, balance: r.opening + r.charged - r.paid }));
+  // 입금은 이전 미납부터 갚은 것으로 봄 → 이전 미납 남은 금액 / 관리단 부과분 미납으로 나눔
+  const out = Object.values(rows).map((r) => {
+    const balance = r.opening + r.charged - r.paid;
+    const oldLeft = Math.max(0, r.opening - r.paid);
+    return { ...r, balance, oldLeft, newLeft: balance - oldLeft };
+  });
   return { rows: out, unmatched, first, last };
 }
 
-export default function FeeCharges({ buildingId, month, charges, deposits, units, accounts, itemAccounts = {}, canManage, ready = true }) {
+export default function FeeCharges({ buildingId, month, charges, deposits, units, accounts, itemAccounts = {}, canManage, ready = true, opening = null }) {
   const router = useRouter();
   const fileRef = useRef(null);
   const [preview, setPreview] = useState(null);
   const [showUnits, setShowUnits] = useState(false);
   const [busy, setBusy] = useState("");
+  const [openingEdit, setOpeningEdit] = useState(null);
   const current = charges.find((c) => c.month === month);
   const recent = [...charges].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 4);
-  const unpaid = useMemo(() => unpaidByUnit({ charges, deposits, units, upto: month }), [charges, deposits, units, month]);
+  const unpaid = useMemo(() => unpaidByUnit({ charges, deposits, units, upto: month, opening }), [charges, deposits, units, month, opening]);
   const totalUnpaid = unpaid.rows.reduce((s, r) => s + Math.max(0, r.balance), 0);
   const unpaidCount = unpaid.rows.filter((r) => r.balance > 0).length;
 
@@ -73,7 +82,8 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
       const isFirst = !charges.some((c) => c.month < m);
       setPreview({
         file: file.name, parsed: p, month: m, chargeDate: lastDay(m),
-        lateFee: true, opening: isFirst && p.totals.unpaid > 0,
+        lateFee: true, openingMode: opening?.arrearsMode || (isFirst && p.totals.unpaid > 0 ? "memo" : "none"), buildingMode: opening?.arrearsMode || "",
+        oldCode: accounts.find((a) => a.is_leaf && a.name === "가수금")?.code || "",
         codes: Object.fromEntries(p.items.map((i) => [i.name, itemAccounts[i.name] || suggestFeeItemAccount(accounts, i.name)])),
         exists: charges.some((c) => c.month === m),
       });
@@ -82,14 +92,15 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
   }
 
   async function save() {
-    const { parsed, month: m, chargeDate, lateFee, opening, codes, file } = preview;
+    const { parsed, month: m, chargeDate, lateFee, openingMode, oldCode, codes, file } = preview;
     setBusy("saving");
     const supabase = createClient();
     const row = {
       building_id: buildingId, month: m, charge_date: chargeDate, source: "엑셀", source_file: file,
       items: parsed.items.map((i) => ({ ...i, account_code: codes[i.name] || "" })),
       units: parsed.units.map((u) => ({ ho: u.ho, charge: u.charge, unpaid: u.unpaid, unpaidLate: u.unpaidLate, area: u.area, values: u.values })),
-      totals: parsed.totals, late_fee_charged: lateFee, opening_unpaid: opening ? parsed.totals.unpaid : 0,
+      totals: { ...parsed.totals, openingMode, oldArrearsCode: oldCode || "" }, late_fee_charged: lateFee,
+      opening_unpaid: openingMode !== "none" ? parsed.totals.unpaid : 0,
     };
     const { error } = await supabase.from("fee_charges").upsert(row, { onConflict: "building_id,month" });
     if (!error && accounts.length) {
@@ -135,6 +146,12 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
                 <div className="text-xs text-inkDim">{c.month.slice(0, 4)}년 {Number(c.month.slice(5))}월분 · {c.source}</div>
                 <div className="font-bold">{won(c.totals?.charge)}원</div>
                 <div className="text-[11px] text-inkDim">{(c.units || []).length}세대 · 장부일 {c.charge_date.slice(5).replace("-", "/")}</div>
+                {Number(c.totals?.unpaid) > 0 && c === charges[0] && !opening?.arrearsMode && (
+                  <div className="text-[11px] text-inkDim">
+                    이전 미납 {won(c.totals.unpaid)} · {({ memo: "따로 관리", books: "장부 포함", none: "관리 안 함" })[openingModeOf(c)]}
+                    {canManage && <button className="underline ml-1" onClick={() => setOpeningEdit(c)}>바꾸기</button>}
+                  </div>
+                )}
                 {canManage && <button className="text-[11px] text-inkDim underline" onClick={() => remove(c)}>삭제</button>}
               </div>
             ))}
@@ -154,6 +171,7 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
         <Preview preview={preview} setPreview={setPreview} accounts={accounts} busy={busy === "saving"} onSave={save} />
       )}
       {showUnits && <UnitUnpaid data={unpaid} month={month} onClose={() => setShowUnits(false)} />}
+      {openingEdit && <OpeningEditor charge={openingEdit} accounts={accounts} onClose={() => setOpeningEdit(null)} />}
     </div>
   );
 }
@@ -205,12 +223,25 @@ function Preview({ preview, setPreview, accounts, busy, onSave }) {
             <span>미납 연체료 {won(p.totals.unpaidLate)}원을 이번 달 부과에 포함 <span className="text-xs text-inkDim">(연체료수입)</span></span>
           </label>
         )}
-        {p.totals.unpaid > 0 && (
-          <label className="flex items-start gap-2 text-sm mb-2">
-            <input type="checkbox" checked={preview.opening} onChange={(e) => set("opening", e.target.checked)} />
-            <span>이전 미납 {won(p.totals.unpaid)}원을 <b>기초 미수관리비</b>로 잡기
-              <span className="block text-xs text-inkDim">처음 올리는 달에만 체크하세요. 앱 시작 전부터 밀린 관리비를 장부와 호실별 미납에 넣습니다.</span></span>
-          </label>
+        {p.totals.unpaid > 0 && preview.buildingMode && (
+          <div className="rounded-xl bg-surface2 p-3 mb-2 text-xs text-inkDim">
+            이전 미납 {won(p.totals.unpaid)}원은 <b className="text-ink">회계 시작 설정</b>에 따라 처리됩니다 ({({ memo: "따로 관리", books: "장부 포함", none: "관리 안 함" })[preview.buildingMode]}).
+          </div>
+        )}
+        {p.totals.unpaid > 0 && !preview.buildingMode && (
+          <div className="rounded-xl border p-3 mb-2 text-sm" style={{ borderColor: "rgb(var(--border))" }}>
+            <div className="font-semibold mb-1">이전 미납 {won(p.totals.unpaid)}원</div>
+            <OpeningChoice value={preview.openingMode} onChange={(v) => set("openingMode", v)} />
+            {preview.openingMode === "memo" && leaves.length > 0 && (
+              <label className="flex items-center gap-2 mt-2 text-xs">
+                <span className="shrink-0 text-inkDim">이전 미납이 입금되면</span>
+                <select className="text-xs py-1" value={preview.oldCode} onChange={(e) => set("oldCode", e.target.value)}>
+                  <option value="">선택</option>
+                  {leaves.map((a) => <option key={a.code} value={a.code}>{a.code} {a.name}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
         )}
 
         <div className="flex gap-2 justify-end mt-4">
@@ -218,6 +249,24 @@ function Preview({ preview, setPreview, accounts, busy, onSave }) {
           <button className="btn" disabled={busy} onClick={onSave}>{busy ? "저장 중…" : "저장"}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+const OPENING = [
+  ["memo", "따로 관리 (관리단 장부는 0에서 시작)", "호실별 미납에만 넣고 장부에는 넣지 않습니다. 이전 미납이 입금되면 미수관리비가 아니라 따로 정한 계정(가수금)으로 잡힙니다."],
+  ["books", "장부에 기초 미수관리비로 넣기", "관리단이 이전 미납까지 넘겨받아 장부에 함께 잡을 때"],
+  ["none", "넣지 않기", "이전 미납을 앱에서 관리하지 않을 때"],
+];
+function OpeningChoice({ value, onChange }) {
+  return (
+    <div className="space-y-1.5">
+      {OPENING.map(([k, label, help]) => (
+        <label key={k} className="flex items-start gap-2 cursor-pointer">
+          <input type="radio" className="mt-1" checked={value === k} onChange={() => onChange(k)} />
+          <span>{label}<span className="block text-xs text-inkDim">{help}</span></span>
+        </label>
+      ))}
     </div>
   );
 }
@@ -235,11 +284,11 @@ function UnitUnpaid({ data, month, onClose }) {
           <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={onlyUnpaid} onChange={(e) => setOnlyUnpaid(e.target.checked)} /> 미납만</label>
         </div>
         <div className="text-xs text-inkDim mb-3">
-          미납 = 기초 미납 + 부과 − 입금. 입금은 거래내역에서 호실을 지정했거나 입금자명에 호수가 적힌 것만 셉니다.
+          미납 = 이전 미납 + 부과 − 입금. 입금은 이전 미납부터 갚은 것으로 보고, "이전분"은 그중 아직 남은 이전 관리 기간 미납입니다. 입금은 거래내역에서 호실을 지정했거나 입금자명에 호수가 적힌 것만 셉니다.
           엑셀 미납은 가장 최근 올린 부과 파일의 미납관리비입니다 (대조용).
         </div>
         <table className="w-full text-sm">
-          <thead><tr className="border-b text-left"><th>호실</th><th className="text-right">기초 미납</th><th className="text-right">부과</th><th className="text-right">입금</th><th className="text-right">미납</th><th className="text-right hidden sm:table-cell">엑셀 미납</th></tr></thead>
+          <thead><tr className="border-b text-left"><th>호실</th><th className="text-right">기초 미납</th><th className="text-right">부과</th><th className="text-right">입금</th><th className="text-right">미납</th><th className="text-right">이전분</th><th className="text-right hidden sm:table-cell">엑셀 미납</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.ho} className="border-b">
@@ -248,10 +297,11 @@ function UnitUnpaid({ data, month, onClose }) {
                 <td className="text-right">{won(r.charged)}</td>
                 <td className="text-right text-accent">{r.paid ? won(r.paid) : ""}</td>
                 <td className={"text-right font-bold " + (r.balance > 0 ? "text-warn" : r.balance < 0 ? "text-accent" : "")}>{won(r.balance)}</td>
+                <td className="text-right text-inkDim">{r.oldLeft ? won(r.oldLeft) : ""}</td>
                 <td className="text-right text-inkDim hidden sm:table-cell">{r.sheetUnpaid ? won(r.sheetUnpaid) : ""}</td>
               </tr>
             ))}
-            <tr className="font-bold"><td>합계</td><td className="text-right">{won(sum("opening"))}</td><td className="text-right">{won(sum("charged"))}</td><td className="text-right">{won(sum("paid"))}</td><td className="text-right">{won(sum("balance"))}</td><td className="hidden sm:table-cell" /></tr>
+            <tr className="font-bold"><td>합계</td><td className="text-right">{won(sum("opening"))}</td><td className="text-right">{won(sum("charged"))}</td><td className="text-right">{won(sum("paid"))}</td><td className="text-right">{won(sum("balance"))}</td><td className="text-right">{won(sum("oldLeft"))}</td><td className="hidden sm:table-cell" /></tr>
           </tbody>
         </table>
         {data.unmatched.length > 0 && (
@@ -264,6 +314,48 @@ function UnitUnpaid({ data, month, onClose }) {
           </div>
         )}
         <div className="flex justify-end mt-4"><button className="btn-ghost" onClick={onClose}>닫기</button></div>
+      </div>
+    </div>
+  );
+}
+
+// 처음 올린 달의 이전 미납 처리 방식 바꾸기
+function OpeningEditor({ charge, accounts, onClose }) {
+  const router = useRouter();
+  const leaves = leafAccounts(accounts);
+  const [mode, setMode] = useState(openingModeOf(charge) === "none" && Number(charge.totals?.unpaid) ? "memo" : openingModeOf(charge));
+  const [oldCode, setOldCode] = useState(charge.totals?.oldArrearsCode || leaves.find((a) => a.name === "가수금")?.code || "");
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    const { error } = await createClient().from("fee_charges").update({
+      opening_unpaid: mode === "none" ? 0 : Number(charge.totals?.unpaid) || 0,
+      totals: { ...(charge.totals || {}), openingMode: mode, oldArrearsCode: oldCode },
+    }).eq("id", charge.id);
+    setBusy(false);
+    if (error) { alert(error.message); return; }
+    onClose();
+    router.refresh();
+  }
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center sm:p-4 z-50" onClick={() => !busy && onClose()}>
+      <div className="bg-surface w-full sm:max-w-md p-5 rounded-t-3xl sm:rounded-3xl text-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="font-bold text-lg mb-1">이전 미납 처리</div>
+        <div className="text-xs text-inkDim mb-3">{Number(charge.month.slice(5))}월분 부과 파일의 이전 미납 {won(charge.totals?.unpaid)}원</div>
+        <OpeningChoice value={mode} onChange={setMode} />
+        {mode === "memo" && leaves.length > 0 && (
+          <label className="flex items-center gap-2 mt-3 text-xs">
+            <span className="shrink-0 text-inkDim">이전 미납이 입금되면</span>
+            <select className="text-xs py-1" value={oldCode} onChange={(e) => setOldCode(e.target.value)}>
+              <option value="">선택</option>
+              {leaves.map((a) => <option key={a.code} value={a.code}>{a.code} {a.name}</option>)}
+            </select>
+          </label>
+        )}
+        <div className="flex gap-2 justify-end mt-4">
+          <button className="btn-ghost" disabled={busy} onClick={onClose}>닫기</button>
+          <button className="btn" disabled={busy} onClick={save}>{busy ? "저장 중…" : "저장"}</button>
+        </div>
       </div>
     </div>
   );
