@@ -21,6 +21,36 @@ export function depositHo(t, unitsById) {
   return m.length === 1 ? m[0] : "";
 }
 
+// 고친 엑셀 검사: 세대별 당월소계와 항목 합이 10원 넘게 다르면 (항목만 고치고 소계를 안 고친 경우 등)
+export function checkSheet(parsed) {
+  return (parsed?.units || []).map((u) => {
+    const sum = Object.values(u.values || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+    return { ho: u.ho, charge: Number(u.charge) || 0, sum, diff: (Number(u.charge) || 0) - sum };
+  }).filter((x) => Math.abs(x.diff) >= 10);
+}
+
+// 이전에 올린 같은 달 부과와 비교: 바뀐 세대·항목
+export function diffCharge(prev, parsed) {
+  if (!prev) return [];
+  const before = Object.fromEntries((prev.units || []).map((u) => [String(u.ho), u]));
+  const after = Object.fromEntries((parsed.units || []).map((u) => [String(u.ho), u]));
+  const hos = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
+  const out = [];
+  hos.forEach((ho) => {
+    const b = before[ho], a = after[ho];
+    if (!b) { out.push({ ho, item: "세대 추가", before: 0, after: Number(a.charge) || 0 }); return; }
+    if (!a) { out.push({ ho, item: "세대 빠짐", before: Number(b.charge) || 0, after: 0 }); return; }
+    // 예전에 저장된 부과에 항목 금액이 없으면 소계만 비교
+    const items = Object.keys(b.values || {}).length ? [...new Set([...Object.keys(b.values || {}), ...Object.keys(a.values || {})])] : [];
+    items.forEach((it) => {
+      const x = Number(b.values?.[it]) || 0, y = Number(a.values?.[it]) || 0;
+      if (x !== y) out.push({ ho, item: it, before: x, after: y });
+    });
+    if ((Number(b.charge) || 0) !== (Number(a.charge) || 0)) out.push({ ho, item: "당월소계", before: Number(b.charge) || 0, after: Number(a.charge) || 0 });
+  });
+  return out;
+}
+
 // 호실별 미납 = 기초 미납 + 부과 누계 − 입금 누계 (보려는 달 말일까지)
 export function unpaidByUnit({ charges, deposits, units, upto, opening = null }) {
   const list = [...charges].filter((c) => c.month <= upto && (!opening?.date || c.charge_date >= opening.date))
@@ -63,6 +93,7 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
   const [showUnits, setShowUnits] = useState(false);
   const [busy, setBusy] = useState("");
   const [openingEdit, setOpeningEdit] = useState(null);
+  const [revView, setRevView] = useState(null);
   const current = charges.find((c) => c.month === month);
   const recent = [...charges].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 4);
   const unpaid = useMemo(() => unpaidByUnit({ charges, deposits, units, upto: month, opening }), [charges, deposits, units, month, opening]);
@@ -92,7 +123,10 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
   }
 
   async function save() {
-    const { parsed, month: m, chargeDate, lateFee, openingMode, oldCode, codes, file } = preview;
+    const { parsed, month: m, chargeDate, lateFee, openingMode, oldCode, codes, file, reason } = preview;
+    const prev = charges.find((c) => c.month === m);
+    const changes = diffCharge(prev, parsed);
+    if (prev && changes.length && !String(reason || "").trim()) { alert("바뀐 내용이 있어요. 수정 사유를 적어주세요."); return; }
     setBusy("saving");
     const supabase = createClient();
     const row = {
@@ -102,7 +136,19 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
       totals: { ...parsed.totals, openingMode, oldArrearsCode: oldCode || "" }, late_fee_charged: lateFee,
       opening_unpaid: openingMode !== "none" ? parsed.totals.unpaid : 0,
     };
-    const { error } = await supabase.from("fee_charges").upsert(row, { onConflict: "building_id,month" });
+    if (prev && changes.length) {
+      row.revisions = [...(prev.revisions || []), {
+        at: new Date().toISOString(), file, reason: String(reason).trim(), changes: changes.slice(0, 300),
+        totalBefore: Number(prev.totals?.charge) || 0, totalAfter: parsed.totals.charge,
+      }];
+    }
+    let { error } = await supabase.from("fee_charges").upsert(row, { onConflict: "building_id,month" });
+    if (error && /revisions/.test(error.message)) {
+      // 수정 기록 칸이 아직 없으면 (fee_revisions.sql 실행 전) 기록 없이 저장
+      delete row.revisions;
+      ({ error } = await supabase.from("fee_charges").upsert(row, { onConflict: "building_id,month" }));
+      if (!error) alert("저장했지만 수정 기록은 남기지 못했어요. Supabase에서 fee_revisions.sql을 실행해주세요.");
+    }
     if (!error && accounts.length) {
       await supabase.from("buildings").update({ fee_item_accounts: { ...itemAccounts, ...codes } }).eq("id", buildingId);
     }
@@ -152,6 +198,9 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
                     {canManage && <button className="underline ml-1" onClick={() => setOpeningEdit(c)}>바꾸기</button>}
                   </div>
                 )}
+                {(c.revisions || []).length > 0 && (
+                  <button className="text-[11px] text-accent underline mr-2" onClick={() => setRevView(c)}>수정 {c.revisions.length}회</button>
+                )}
                 {canManage && <button className="text-[11px] text-inkDim underline" onClick={() => remove(c)}>삭제</button>}
               </div>
             ))}
@@ -168,16 +217,20 @@ export default function FeeCharges({ buildingId, month, charges, deposits, units
       )}
 
       {preview && (
-        <Preview preview={preview} setPreview={setPreview} accounts={accounts} busy={busy === "saving"} onSave={save} />
+        <Preview preview={preview} setPreview={setPreview} accounts={accounts} charges={charges} busy={busy === "saving"} onSave={save} />
       )}
       {showUnits && <UnitUnpaid data={unpaid} month={month} onClose={() => setShowUnits(false)} />}
+      {revView && <Revisions charge={revView} onClose={() => setRevView(null)} />}
       {openingEdit && <OpeningEditor charge={openingEdit} accounts={accounts} onClose={() => setOpeningEdit(null)} />}
     </div>
   );
 }
 
-function Preview({ preview, setPreview, accounts, busy, onSave }) {
+function Preview({ preview, setPreview, accounts, charges = [], busy, onSave }) {
   const { parsed: p } = preview;
+  const prev = charges.find((c) => c.month === preview.month);
+  const changes = diffCharge(prev, p);
+  const issues = checkSheet(p);
   const leaves = leafAccounts(accounts);
   const set = (k, v) => setPreview({ ...preview, [k]: v });
   return (
@@ -191,7 +244,39 @@ function Preview({ preview, setPreview, accounts, busy, onSave }) {
           <label className="block"><span className="block text-[11px] text-inkDim mb-0.5">장부에 잡는 날</span>
             <input type="date" value={preview.chargeDate} onChange={(e) => set("chargeDate", e.target.value)} /></label>
         </div>
-        {preview.exists && <div className="text-xs text-warn mb-2">이 달 부과 내역이 이미 있어요. 저장하면 새 파일로 바뀝니다.</div>}
+        {issues.length > 0 && (
+          <div className="rounded-xl bg-warn/10 p-3 mb-3 text-xs">
+            <div className="font-semibold text-warn mb-1">⚠ 확인이 필요한 세대 {issues.length}곳 — 당월소계와 항목 합이 다릅니다</div>
+            <div className="max-h-28 overflow-y-auto space-y-0.5">
+              {issues.map((x) => <div key={x.ho}>{x.ho}호 · 당월소계 {won(x.charge)} / 항목 합 {won(x.sum)} ({x.diff > 0 ? "+" : ""}{won(x.diff)})</div>)}
+            </div>
+            <div className="text-inkDim mt-1">엑셀에서 항목 금액만 고치고 소계를 안 고쳤는지 확인해주세요. 그대로 저장하면 차이는 끝수 조정으로 잡힙니다.</div>
+          </div>
+        )}
+        {prev && (
+          <div className="rounded-xl border p-3 mb-3 text-xs" style={{ borderColor: "rgb(var(--border))" }}>
+            <div className="font-semibold text-sm mb-1">
+              이미 올린 {Number(preview.month.slice(5))}월분과 비교 · {changes.length ? `${new Set(changes.map((c) => c.ho)).size}세대 ${changes.length}곳 바뀜` : "바뀐 곳 없음"}
+            </div>
+            {changes.length > 0 && (
+              <>
+                <div className="text-inkDim mb-1">부과 합계 {won(prev.totals?.charge)} → <b className="text-ink">{won(p.totals.charge)}</b>원 ({p.totals.charge - (Number(prev.totals?.charge) || 0) >= 0 ? "+" : ""}{won(p.totals.charge - (Number(prev.totals?.charge) || 0))})</div>
+                <div className="max-h-40 overflow-y-auto space-y-0.5">
+                  {changes.map((c, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="w-14 font-semibold">{c.ho}호</span><span className="flex-1 truncate">{c.item}</span>
+                      <span className="text-inkDim">{won(c.before)} →</span><span className={"w-20 text-right font-semibold " + (c.after > c.before ? "text-warn" : "text-accent")}>{won(c.after)}</span>
+                    </div>
+                  ))}
+                </div>
+                <label className="block mt-2">
+                  <span className="block text-[11px] text-inkDim mb-0.5">수정 사유 (기록에 남습니다)</span>
+                  <input value={preview.reason || ""} placeholder="예: 101호 수도 검침 오류 정정" onChange={(e) => set("reason", e.target.value)} />
+                </label>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="rounded-xl bg-surface2 p-3 mb-3 text-sm grid grid-cols-2 gap-y-1">
           <span className="text-inkDim">세대</span><span className="text-right">{p.totals.units}세대</span>
@@ -356,6 +441,31 @@ function OpeningEditor({ charge, accounts, onClose }) {
           <button className="btn-ghost" disabled={busy} onClick={onClose}>닫기</button>
           <button className="btn" disabled={busy} onClick={save}>{busy ? "저장 중…" : "저장"}</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// 부과 수정 기록
+function Revisions({ charge, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center sm:p-4 z-50" onClick={onClose}>
+      <div className="bg-surface w-full sm:max-w-lg max-h-[92vh] overflow-y-auto p-5 rounded-t-3xl sm:rounded-3xl text-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="font-bold text-lg mb-3">{charge.month.slice(0, 4)}년 {Number(charge.month.slice(5))}월분 부과 수정 기록</div>
+        {[...(charge.revisions || [])].reverse().map((r, i) => (
+          <div key={i} className="rounded-xl bg-surface2 p-3 mb-2">
+            <div className="flex justify-between text-xs text-inkDim">
+              <span>{new Date(r.at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</span>
+              <span>{won(r.totalBefore)} → {won(r.totalAfter)}원</span>
+            </div>
+            <div className="font-semibold mt-1">{r.reason}</div>
+            <div className="text-xs mt-1 space-y-0.5">
+              {(r.changes || []).map((c, k) => <div key={k}>{c.ho}호 · {c.item}: {won(c.before)} → {won(c.after)}</div>)}
+            </div>
+            {r.file && <div className="text-[11px] text-inkDim mt-1 break-all">{r.file}</div>}
+          </div>
+        ))}
+        <div className="flex justify-end mt-2"><button className="btn-ghost" onClick={onClose}>닫기</button></div>
       </div>
     </div>
   );
