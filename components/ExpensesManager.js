@@ -24,10 +24,14 @@ export const DOC_TYPES = [
   { key: "거래명세서" },
   { key: "견적서" },
   { key: "계약서" },
-  { key: "작업완료 사진", hint: "작업 전·후 (수선 시 권장)" },
+  { key: "작업 전 사진", hint: "수선·교체 전 상태" },
+  { key: "작업 후 사진", hint: "수선·교체 후 완료 상태" },
   { key: "이체확인증" },
   { key: "기타" },
 ];
+// 예전 이름으로 저장된 종류는 새 이름으로 보여줌
+const LEGACY_DOC = { "작업완료 사진": "작업 후 사진" };
+export const normDoc = (t) => LEGACY_DOC[t] || t || "기타";
 const REQUIRED_TYPES = DOC_TYPES.filter((d) => d.required).map((d) => d.key);
 const FILE_ACCEPT = "image/*,application/pdf,.xls,.xlsx,.xlsm,.csv,.hwp,.hwpx,.doc,.docx,.ppt,.pptx";
 
@@ -360,7 +364,7 @@ export default function ExpensesManager({
 }
 
 const isImage = (name) => /\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(name || "");
-const docOrder = (t) => { const i = DOC_TYPES.findIndex((d) => d.key === t); return i < 0 ? 99 : i; };
+const docOrder = (t) => { const i = DOC_TYPES.findIndex((d) => d.key === normDoc(t)); return i < 0 ? 99 : i; };
 
 // ---------- 월별 출력 (A4, 쪽 번호·머리말·꼬리말이 있는 문서 양식) ----------
 const NAVY = "#1f2a44";
@@ -410,7 +414,9 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
   // 증빙 첨부 쪽 나누기: 지출 한 건의 사진을 4장씩
   const attachPages = [];
   rows.forEach(({ e, no }) => {
-    const rcs = [...(receiptsByExpense[e.id] || [])].sort((a, b) => docOrder(a.doc_type) - docOrder(b.doc_type));
+    // 작업 전·후 사진을 맨 앞에 두어 출력물에서 나란히(왼쪽 전, 오른쪽 후) 보이게 함
+    const printOrder = (t) => (normDoc(t) === "작업 전 사진" ? -2 : normDoc(t) === "작업 후 사진" ? -1 : docOrder(t));
+    const rcs = [...(receiptsByExpense[e.id] || [])].sort((a, b) => printOrder(a.doc_type) - printOrder(b.doc_type));
     if (!rcs.length) return;
     const imgs = rcs.filter((r) => isImage(r.file_name) && urls[r.storage_path]);
     const files = rcs.filter((r) => !(isImage(r.file_name) && urls[r.storage_path]));
@@ -543,7 +549,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
             <div className={"grid gap-3 " + (ap.imgs.length === 1 ? "grid-cols-1" : "grid-cols-2")} style={{ height: ap.files.length ? "185mm" : "205mm" }}>
               {ap.imgs.map((r) => (
                 <figure key={r.id} className="flex flex-col min-h-0 border border-black/15 rounded p-1.5">
-                  <div className="text-[8.5pt] font-semibold mb-1" style={{ color: NAVY }}>[{r.doc_type || "기타"}]</div>
+                  <div className="text-[8.5pt] font-semibold mb-1" style={{ color: NAVY }}>[{normDoc(r.doc_type)}]</div>
                   <div className="flex-1 min-h-0 flex items-center justify-center">
                     <img src={urls[r.storage_path]} alt={r.file_name} className="max-h-full max-w-full object-contain" />
                   </div>
@@ -554,7 +560,7 @@ function PrintSheet({ buildingName, month, expenses, receiptsByExpense, txnByExp
           {ap.files.length > 0 && (
             <div className="mt-3 text-[9pt]">
               <div className="font-semibold mb-1">사진이 아닌 증빙 파일 (앱에서 확인)</div>
-              {ap.files.map((r) => <div key={r.id}>· [{r.doc_type || "기타"}] {r.file_name}</div>)}
+              {ap.files.map((r) => <div key={r.id}>· [{normDoc(r.doc_type)}] {r.file_name}</div>)}
             </div>
           )}
         </PrintPage>
@@ -579,7 +585,7 @@ export function ExpenseModal({ buildingId, expense, receipts, txn, canManage, on
   const [reviewStatus, setReviewStatus] = useState(expense?.review_status || "미확인");
   const [reviewMemo, setReviewMemo] = useState(expense?.review_memo || "");
   const [newFiles, setNewFiles] = useState([]); // [{ file, docType, preview }]
-  const [existing, setExisting] = useState(receipts.map((r) => ({ ...r, doc_type: r.doc_type || "기타" })));
+  const [existing, setExisting] = useState(receipts.map((r) => ({ ...r, doc_type: normDoc(r.doc_type) })));
   const [typeChanges, setTypeChanges] = useState({}); // 기존 파일 종류 변경 { id: docType }
   const [urls, setUrls] = useState({}); // 기존 증빙 보기용 임시 링크
   const [saving, setSaving] = useState(false);
